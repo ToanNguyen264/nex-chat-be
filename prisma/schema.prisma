@@ -74,6 +74,7 @@ model friendships {
   status                                friendships_status @default(pending)
   created_at                            DateTime           @default(now()) @db.DateTime(0)
   updated_at                            DateTime           @default(now()) @db.DateTime(0)
+  pair_key                              String             @unique(map: "uq_friendship_pair") @db.VarChar(50)
   users_friendships_addressee_idTousers users              @relation("friendships_addressee_idTousers", fields: [addressee_id], references: [id], onDelete: Cascade, map: "fk_friendships_addressee")
   users_friendships_requester_idTousers users              @relation("friendships_requester_idTousers", fields: [requester_id], references: [id], onDelete: Cascade, map: "fk_friendships_requester")
 
@@ -214,7 +215,7 @@ model users {
   first_name                                  String?                     @db.VarChar(100)
   last_name                                   String?                     @db.VarChar(100)
   avatar                                      String?                     @db.VarChar(500)
-  password_hash                               String                      @db.VarChar(255)
+  password                                    String                      @db.VarChar(255)
   status                                      users_status                @default(active)
   deleted                                     users_deleted               @default(NO)
   deleted_at                                  DateTime?                   @db.DateTime(0)
