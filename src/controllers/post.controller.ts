@@ -75,3 +75,51 @@ export const getPosts = async (
         });
     }
 };
+
+export const deletePost = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    try {
+        const userId = req.userId;
+        const { id } = req.params;
+
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
+
+        if (!id || Array.isArray(id) || !/^\d+$/.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid post ID",
+            });
+        }
+
+        const result = await postService.deletePost(
+            BigInt(id),
+            userId
+        );
+
+        if (result.count === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Post not found or you cannot delete it",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Post deleted successfully",
+        });
+    } catch (error) {
+        console.error("DELETE POST ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};

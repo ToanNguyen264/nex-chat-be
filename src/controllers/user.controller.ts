@@ -1,6 +1,45 @@
 import type { Request, Response } from "express";
 import * as userService from "../services/user.service";
 import bcrypt from "bcrypt";
+import type { AuthRequest } from "../middlewares/auth.middleware";
+
+export const getCurrentUser = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    try {
+        if (!req.userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
+
+        const user = await userService.getUserById(req.userId);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                ...user,
+                id: user.id.toString(),
+            },
+        });
+    } catch (error) {
+        console.error("GET CURRENT USER ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
 
 export const getUsers = async (req: Request, res: Response) => {
     try {
