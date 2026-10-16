@@ -2,6 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import userRouters from "./routes/user.routes";
 import authRouters from "./routes/auth.routes";
+import postRouters from "./routes/post.routes";
 import cookieParser from "cookie-parser";
 
 dotenv.config();
@@ -11,6 +12,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use("/api/users", userRouters);
 app.use("/api/auth", authRouters);
+app.use("/api/posts", postRouters);
 
 const PORT = process.env.PORT || 3000;
 

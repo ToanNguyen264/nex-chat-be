@@ -27,7 +27,7 @@ export const createAccessToken = (userId: bigint) => {
         },
         ACCESS_SECRET,
         {
-            expiresIn: "15m",
+            expiresIn: "30d",
         }
     )
 };
