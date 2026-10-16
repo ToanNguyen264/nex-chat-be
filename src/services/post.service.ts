@@ -1,27 +1,49 @@
 import prisma from "../configs/prisma";
+import type { UploadedMedia } from "./storage.service";
 
 export const createPost = async (
     userId: bigint,
-    content: string
+    content: string,
+    media: UploadedMedia[] = []
 ) => {
-    const post = await prisma.posts.create({
-        data: {
-            user_id: userId,
-            content,
-        },
-        include: {
-            users: {
-                select: {
-                    first_name: true,
-                    last_name: true,
-                    user_name: true,
-                    avatar: true,
+    return prisma.$transaction(async (transaction) => {
+        const post = await transaction.posts.create({
+            data: {
+                user_id: userId,
+                content,
+            },
+            include: {
+                users: {
+                    select: {
+                        first_name: true,
+                        last_name: true,
+                        user_name: true,
+                        avatar: true,
+                    },
                 },
             },
-        },
-    });
+        });
 
-    return post;
+        const attachments = await Promise.all(
+            media.map((file) =>
+                transaction.attachments.create({
+                data: {
+                    owner_type: "post",
+                    owner_id: post.id,
+                    file_url: file.objectKey,
+                    file_type: file.fileType,
+                    file_name: file.fileName,
+                    file_size: BigInt(file.fileSize),
+                },
+                })
+            )
+        );
+
+        return {
+            ...post,
+            attachments,
+        };
+    });
 };
 
 export const getPosts = async () => {
@@ -44,7 +66,25 @@ export const getPosts = async () => {
         },
     });
 
-    return posts;
+    const postIds = posts.map((post) => post.id);
+
+    const attachments = postIds.length > 0
+        ? await prisma.attachments.findMany({
+            where: {
+                owner_type: "post",
+                owner_id: {
+                    in: postIds,
+                },
+            },
+        })
+        : [];
+
+    return posts.map((post) => ({
+        ...post,
+        attachments: attachments.filter(
+            (attachment) => attachment.owner_id === post.id
+        ),
+    }));
 };
 
 export const deletePost = async (

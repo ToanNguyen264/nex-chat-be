@@ -1,6 +1,7 @@
 import type { Response } from "express";
 import type { AuthRequest } from "../middlewares/auth.middleware";
 import * as postService from "../services/post.service";
+import * as storageService from "../services/storage.service";
 
 export const createPost = async (
     req: AuthRequest,
@@ -8,7 +9,6 @@ export const createPost = async (
 ) => {
     try {
         const userId = req.userId;
-        const { content } = req.body;
 
         if (!userId) {
             return res.status(401).json({
@@ -17,16 +17,32 @@ export const createPost = async (
             });
         }
 
-        if (typeof content !== "string" || !content.trim()) {
+        const content =
+            typeof req.body.content === "string"
+                ? req.body.content.trim()
+                : "";
+
+        const files = Array.isArray(req.files)
+            ? req.files
+            : [];
+
+        if (!content && files.length === 0) {
             return res.status(400).json({
                 success: false,
-                message: "Content is required",
+                message: "Content or media is required",
             });
         }
 
+        const media = await Promise.all(
+            files.map((file) =>
+                storageService.uploadPostMedia(file)
+            )
+        );
+
         const post = await postService.createPost(
             userId,
-            content.trim()
+            content,
+            media
         );
 
         return res.status(201).json({
@@ -36,6 +52,22 @@ export const createPost = async (
                 ...post,
                 id: post.id.toString(),
                 user_id: post.user_id.toString(),
+
+                attachments: post.attachments.map(
+                    (attachment) => ({
+                        ...attachment,
+                        id: attachment.id.toString(),
+                        owner_id:
+                            attachment.owner_id.toString(),
+                        file_url:
+                            storageService.getPublicMediaUrl(
+                                attachment.file_url
+                            ),
+                        file_size:
+                            attachment.file_size?.toString() ??
+                            null,
+                    })
+                ),
             },
         });
     } catch (error) {
@@ -60,6 +92,18 @@ export const getPosts = async (
             ...post,
             id: post.id.toString(),
             user_id: post.user_id.toString(),
+            attachments: post.attachments.map(
+                (attachment) => ({
+                    ...attachment,
+                    id: attachment.id.toString(),
+                    owner_id: attachment.owner_id.toString(),
+                    file_url: storageService.getPublicMediaUrl(
+                        attachment.file_url
+                    ),
+                    file_size:
+                        attachment.file_size?.toString() ?? null,
+                })
+            ),
         }));
 
         return res.status(200).json({
