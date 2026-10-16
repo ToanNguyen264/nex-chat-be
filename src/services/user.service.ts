@@ -1,5 +1,5 @@
 import prisma from "../configs/prisma";
-import {users_status} from "@prisma/client";   
+import { users_status } from "@prisma/client";
 
 export const getAllUser = async () => {
     return await prisma.users.findMany({
@@ -45,10 +45,21 @@ export const getUserById = async (id: bigint) => {
 
 export const getUserByEmail = async (email: string) => {
     return await prisma.users.findUnique({
-        where: { 
+        where: {
             email,
             deleted: "NO",
-         },
+        },
+    });
+};
+
+export const getUserByUserName = async (userName: string) => {
+    return prisma.users.findUnique({
+        where: {
+            user_name: userName,
+        },
+        select: {
+            id: true,
+        },
     });
 };
 
@@ -57,17 +68,19 @@ export const createUser = async (
     passwordHash: string,
     firstName: string,
     lastName: string,
-    userName?: string,
+    userName: string,
+    phoneNumber: string,
     avatar?: string
 ) => {
     return await prisma.users.create({
         data: {
             email,
-            password_hash: passwordHash,
+            password: passwordHash,
+            phone_number: phoneNumber,
             status: "active",
-            ...(userName && { user_name: userName }),
-            ...(firstName && { first_name: firstName }),
-            ...(lastName && { last_name: lastName }),
+            user_name: userName,
+            first_name: firstName,
+            last_name: lastName,
             ...(avatar && { avatar }),
         },
         select: {
@@ -78,6 +91,7 @@ export const createUser = async (
             first_name: true,
             last_name: true,
             avatar: true,
+            phone_number: true,
             created_at: true,
             updated_at: true,
         },

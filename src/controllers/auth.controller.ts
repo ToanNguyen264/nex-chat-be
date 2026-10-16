@@ -19,16 +19,28 @@ import type { AuthRequest } from "../middlewares/auth.middleware";
 
 export const register = async (req: Request, res: Response) => {
     try {
-        const { email, password, firstName, lastName, userName } = req.body;
+        const { 
+            email,
+            password,
+            firstName,
+            lastName,
+            userName,
+            phoneNumber,
+        } = req.body;
 
-        if (!email || !password || !firstName || !lastName) {
+        if (!email || !password || !firstName || !lastName || !phoneNumber) {
             return res.status(400).json({
                 success: false,
                 message: "Missing required fields",
             });
         }
 
-        const existingUser = await userService.getUserByEmail(email);
+        const normalizedEmail = email.trim().toLowerCase();
+        //const normalizedUserName = userName.trim().toLowerCase();
+        const normalizedPhoneNumber = phoneNumber.replace(/\s/g, "");
+
+        const existingUser = await userService.getUserByEmail(normalizedEmail);
+        const existinguserName = await userService.getUserByUserName(userName);
 
         if (existingUser) {
             return res.status(409).json({
@@ -36,10 +48,16 @@ export const register = async (req: Request, res: Response) => {
                 message: "Email already exists",
             });
         }
+        if (existinguserName) {
+            return res.status(409).json({
+                success: false,
+                message: "Username already exists",
+            });
+        }
 
         const passwordHash = await authService.hashPassword(password);
 
-        const user = await userService.createUser(email, passwordHash, firstName, lastName, userName);
+        const user = await userService.createUser(normalizedEmail, passwordHash, firstName, lastName, userName, normalizedPhoneNumber);
 
         return res.status(201).json({
             success: true,
@@ -80,7 +98,7 @@ export const login = async (req: Request, res: Response) => {
         const passwordValid =
             await authService.comparePassword(
                 password,
-                user.password_hash
+                user.password
             );
 
         if (!passwordValid) {
