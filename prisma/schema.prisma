@@ -166,8 +166,13 @@ model profiles {
   user_id      BigInt    @unique(map: "user_id") @db.UnsignedBigInt
   display_name String    @db.VarChar(100)
   avatar_url   String?   @db.VarChar(500)
+  cover_image  String?   @db.VarChar(500)
   bio          String?   @db.Text
   birthday     DateTime? @db.Date
+  workplace    String?   @db.VarChar(255)
+  education    String?   @db.VarChar(255)
+  location     String?   @db.VarChar(255)
+  website      String?   @db.VarChar(500)
   created_at   DateTime  @default(now()) @db.DateTime(0)
   updated_at   DateTime  @default(now()) @db.DateTime(0)
   users        users     @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "fk_profiles_user")

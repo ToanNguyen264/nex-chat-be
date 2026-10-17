@@ -1,4 +1,5 @@
 import multer from "multer";
+import type { NextFunction, Request, Response } from "express";
 
 const allowedMimeTypes = new Set([
     "image/jpeg",
@@ -37,3 +38,53 @@ const upload = multer({
 });
 
 export const uploadPostMedia = upload.array("media", 20);
+
+const profileImageUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 10 * 1024 * 1024,
+        files: 1,
+    },
+    fileFilter: (_req, file, callback) => {
+        const allowedProfileImageTypes = new Set([
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/gif",
+        ]);
+
+        if (!allowedProfileImageTypes.has(file.mimetype)) {
+            return callback(new Error("Only image files are allowed"));
+        }
+
+        callback(null, true);
+    },
+});
+
+const handleProfileImageUpload = (fieldName: string) => {
+    const middleware = profileImageUpload.single(fieldName);
+
+    return (req: Request, res: Response, next: NextFunction) => {
+        middleware(req, res, (error) => {
+            if (!error) {
+                next();
+                return;
+            }
+
+            const message = error instanceof multer.MulterError &&
+                error.code === "LIMIT_FILE_SIZE"
+                ? "Image must not exceed 10 MB"
+                : error instanceof Error
+                    ? error.message
+                    : "Invalid image upload";
+
+            res.status(400).json({
+                success: false,
+                message,
+            });
+        });
+    };
+};
+
+export const uploadProfileAvatar = handleProfileImageUpload("avatar");
+export const uploadProfileCover = handleProfileImageUpload("coverImage");
