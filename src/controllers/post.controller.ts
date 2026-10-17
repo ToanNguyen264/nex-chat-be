@@ -82,11 +82,20 @@ export const createPost = async (
 
 
 export const getPosts = async (
-    _req: AuthRequest,
+    req: AuthRequest,
     res: Response
 ) => {
     try {
-        const posts = await postService.getPosts();
+        const userId = req.userId;
+
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
+
+        const posts = await postService.getPosts(userId);
 
         const data = posts.map((post) => ({
             ...post,
@@ -112,6 +121,72 @@ export const getPosts = async (
         });
     } catch (error) {
         console.error("GET POSTS ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+export const setPostReaction = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    try {
+        const userId = req.userId;
+        const { id } = req.params;
+        const { reactionType } = req.body;
+
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
+
+        if (!id || Array.isArray(id) || !/^\d+$/.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid post ID",
+            });
+        }
+
+        const allowedReactionTypes = [
+            "like",
+            "love",
+            "haha",
+            "wow",
+            "sad",
+            "angry",
+        ] as const;
+
+        if (!allowedReactionTypes.includes(reactionType)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid reaction type",
+            });
+        }
+
+        const result = await postService.setPostReaction(
+            BigInt(id),
+            userId,
+            reactionType
+        );
+
+        if (!result) {
+            return res.status(404).json({
+                success: false,
+                message: "Post not found",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: result,
+        });
+    } catch (error) {
+        console.error("SET POST REACTION ERROR:", error);
 
         return res.status(500).json({
             success: false,

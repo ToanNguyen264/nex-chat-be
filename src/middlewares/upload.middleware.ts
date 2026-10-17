@@ -21,7 +21,7 @@ const upload = multer({
     storage: multer.memoryStorage(), // lưu ở ram đã rồi mới đẩy lên s3
 
     limits: {
-        fileSize: 50 * 1024 * 1024,
+        fileSize: 100 * 1024 * 1024,
         files: 20,
     },
 
