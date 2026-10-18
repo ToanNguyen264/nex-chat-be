@@ -4,18 +4,29 @@ import userRouters from "./routes/user.routes";
 import authRouters from "./routes/auth.routes";
 import postRouters from "./routes/post.routes";
 import cookieParser from "cookie-parser";
+import friendRouters from "./routes/friend.routes";
+import notificationRouters from "./routes/notification.routes";
+import { createServer } from "http";
+import { initializeSocket } from "./socket/socket";
 
 dotenv.config();
 
 const app = express();
+//Tạo HTTP server sau khi tạo Express app
+const httpServer = createServer(app);
+
+initializeSocket(httpServer);
+
 app.use(express.json());
 app.use(cookieParser());
 app.use("/api/users", userRouters);
 app.use("/api/auth", authRouters);
 app.use("/api/posts", postRouters);
+app.use("/api/friends", friendRouters);
+app.use("/api/notifications", notificationRouters);
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });

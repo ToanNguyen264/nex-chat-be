@@ -2,6 +2,16 @@ import type { Request, Response } from "express";
 import * as userService from "../services/user.service";
 import bcrypt from "bcrypt";
 import type { AuthRequest } from "../middlewares/auth.middleware";
+import type { UpdateMyProfileInput } from "../services/user.service";
+import * as storageService from "../services/storage.service";
+
+const nullableTextFields = {
+    bio: 2000,
+    workplace: 255,
+    education: 255,
+    location: 255,
+    website: 500,
+} as const;
 
 export const getCurrentUser = async (
     req: AuthRequest,
@@ -39,6 +49,313 @@ export const getCurrentUser = async (
             message: "Internal server error",
         });
     }
+};
+
+export const getUserProfile = async (req: AuthRequest, res: Response) => {
+    try {
+        const { userId } = req.params;
+
+        if (!userId || Array.isArray(userId) || !/^\d+$/.test(userId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid user ID",
+            });
+        }
+
+        const result = await userService.getUserProfile(BigInt(userId));
+
+        if (!result) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found",
+            });
+        }
+
+        const { profiles, ...user } = result;
+        const fullName = [user.first_name, user.last_name]
+            .filter(Boolean)
+            .join(" ");
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                ...user,
+                id: user.id.toString(),
+                display_name:
+                    profiles?.display_name ||
+                    fullName ||
+                    user.user_name ||
+                    "Người dùng",
+                avatar: profiles?.avatar_url || user.avatar,
+                cover_image: profiles?.cover_image ?? null,
+                bio: profiles?.bio ?? null,
+                birthday: profiles?.birthday ?? null,
+                workplace: profiles?.workplace ?? null,
+                education: profiles?.education ?? null,
+                location: profiles?.location ?? null,
+                website: profiles?.website ?? null,
+            },
+        });
+    } catch (error) {
+        console.error("GET USER PROFILE ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+export const updateMyProfile = async (req: AuthRequest, res: Response) => {
+    try {
+        if (!req.userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
+
+        if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+            return res.status(400).json({
+                success: false,
+                message: "Request body must be an object",
+            });
+        }
+
+        const body = req.body as Record<string, unknown>;
+        const allowedFields = [
+            "displayName",
+            "bio",
+            "birthday",
+            "workplace",
+            "education",
+            "location",
+            "website",
+        ];
+        const suppliedFields = allowedFields.filter(
+            (field) => body[field] !== undefined
+        );
+
+        if (suppliedFields.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "No profile fields were provided",
+            });
+        }
+
+        const data: UpdateMyProfileInput = {};
+
+        if (body.displayName !== undefined) {
+            if (typeof body.displayName !== "string") {
+                return res.status(400).json({
+                    success: false,
+                    message: "displayName must be a string",
+                });
+            }
+
+            const displayName = body.displayName.trim();
+
+            if (!displayName || displayName.length > 100) {
+                return res.status(400).json({
+                    success: false,
+                    message: "displayName must contain 1 to 100 characters",
+                });
+            }
+
+            data.displayName = displayName;
+        }
+
+        for (const [field, maxLength] of Object.entries(nullableTextFields)) {
+            const value = body[field];
+
+            if (value === undefined) {
+                continue;
+            }
+
+            if (value !== null && typeof value !== "string") {
+                return res.status(400).json({
+                    success: false,
+                    message: `${field} must be a string or null`,
+                });
+            }
+
+            const normalizedValue =
+                typeof value === "string" ? value.trim() || null : null;
+
+            if (
+                typeof normalizedValue === "string" &&
+                normalizedValue.length > maxLength
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: `${field} must not exceed ${maxLength} characters`,
+                });
+            }
+
+            data[field as keyof typeof nullableTextFields] = normalizedValue;
+        }
+
+        if (typeof data.website === "string") {
+            try {
+                const websiteUrl = new URL(data.website);
+
+                if (!["http:", "https:"].includes(websiteUrl.protocol)) {
+                    throw new Error("Invalid protocol");
+                }
+            } catch {
+                return res.status(400).json({
+                    success: false,
+                    message: "website must be a valid HTTP or HTTPS URL",
+                });
+            }
+        }
+
+        if (body.birthday !== undefined) {
+            if (body.birthday === null || body.birthday === "") {
+                data.birthday = null;
+            } else if (
+                typeof body.birthday === "string" &&
+                /^\d{4}-\d{2}-\d{2}$/.test(body.birthday)
+            ) {
+                const birthday = new Date(`${body.birthday}T00:00:00.000Z`);
+
+                if (
+                    Number.isNaN(birthday.getTime()) ||
+                    birthday.toISOString().slice(0, 10) !== body.birthday
+                ) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "birthday is not a valid date",
+                    });
+                }
+
+                data.birthday = birthday;
+            } else {
+                return res.status(400).json({
+                    success: false,
+                    message: "birthday must use YYYY-MM-DD format or be null",
+                });
+            }
+        }
+
+        const profile = await userService.updateMyProfile(req.userId, data);
+
+        if (!profile) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Profile updated successfully",
+            data: {
+                ...profile,
+                id: profile.id.toString(),
+                user_id: profile.user_id.toString(),
+            },
+        });
+    } catch (error) {
+        console.error("UPDATE MY PROFILE ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+const updateProfileImage = async (
+    req: AuthRequest,
+    res: Response,
+    imageType: "avatar" | "cover"
+) => {
+    const userId = req.userId;
+
+    if (!userId) {
+        return res.status(401).json({
+            success: false,
+            message: "Unauthorized",
+        });
+    }
+
+    if (!req.file) {
+        return res.status(400).json({
+            success: false,
+            message: "Image file is required",
+        });
+    }
+
+    let uploadedUrl: string | null = null;
+
+    try {
+        const objectKey = await storageService.uploadProfileImage(
+            userId,
+            imageType,
+            req.file
+        );
+        uploadedUrl = storageService.getPublicMediaUrl(objectKey);
+
+        const result = await userService.updateMyProfileImage(
+            userId,
+            imageType,
+            uploadedUrl
+        );
+
+        if (!result) {
+            await storageService.deleteMediaByPublicUrl(uploadedUrl);
+
+            return res.status(404).json({
+                success: false,
+                message: "User not found",
+            });
+        }
+
+        try {
+            await storageService.deleteMediaByPublicUrl(
+                result.previousImageUrl
+            );
+        } catch (deleteError) {
+            console.error("DELETE OLD PROFILE IMAGE ERROR:", deleteError);
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: imageType === "avatar"
+                ? "Avatar updated successfully"
+                : "Cover image updated successfully",
+            data: {
+                imageUrl: uploadedUrl,
+            },
+        });
+    } catch (error) {
+        if (uploadedUrl) {
+            try {
+                await storageService.deleteMediaByPublicUrl(uploadedUrl);
+            } catch (cleanupError) {
+                console.error("CLEANUP PROFILE IMAGE ERROR:", cleanupError);
+            }
+        }
+
+        console.error("UPDATE PROFILE IMAGE ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+export const updateMyAvatar = async (req: AuthRequest, res: Response) => {
+    return updateProfileImage(req, res, "avatar");
+};
+
+export const updateMyCoverImage = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    return updateProfileImage(req, res, "cover");
 };
 
 export const getUsers = async (req: Request, res: Response) => {
