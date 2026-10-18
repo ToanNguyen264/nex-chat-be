@@ -55,6 +55,7 @@ model conversation_members {
 model conversations {
   id                   BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
   type                 conversations_type     @default(direct)
+  direct_key           String?                @unique(map: "uq_conversations_direct_key") @db.VarChar(50)
   name                 String?                @db.VarChar(255)
   avatar_url           String?                @db.VarChar(500)
   created_by           BigInt?                @db.UnsignedBigInt
@@ -133,6 +134,7 @@ model messages {
   @@index([conversation_id], map: "idx_messages_conversation")
   @@index([created_at], map: "idx_messages_created_at")
   @@index([sender_id], map: "idx_messages_sender")
+  @@index([conversation_id, id(sort: Desc)], map: "idx_messages_conversation_id_desc")
 }
 
 model notifications {
