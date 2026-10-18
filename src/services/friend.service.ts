@@ -4,6 +4,34 @@ import {
     emitNewNotification,
 } from "./notification.service";
 import { emitFriendshipChanged } from "../socket/friendship.events";
+
+
+type GetFriendSuggestionCandidatesInput = {
+    userId: bigint;
+    limit?: number;
+};
+
+const normalizeMatchText = (
+    value: string | null | undefined
+) => {
+    return value?.trim().toLocaleLowerCase("vi-VN") ?? "";
+};
+
+const isSameProfileValue = (
+    firstValue: string | null | undefined,
+    secondValue: string | null | undefined
+) => {
+    const first = normalizeMatchText(firstValue);
+    const second = normalizeMatchText(secondValue);
+
+    return first !== "" && first === second;
+};
+/* 
+userId: ID người đang đăng nhập.
+limit: số ứng viên tối đa cần lấy
+ */
+
+
 const createPairKey = (firstUserId: bigint, secondUserId: bigint) => {
     let smallerId: bigint;
     let largerId: bigint;
@@ -770,4 +798,227 @@ export const unblockUser = async (
     return {
         success: true,
     } as const;
+};
+
+/* hàm lấy ứng viên phù hợp để gợi ý kết bạn */
+export const getFriendSuggestionCandidates = async ({
+    userId,
+    limit = 20,
+}: GetFriendSuggestionCandidatesInput) => {
+
+    /* lấy hồ sơ người đang đăng nhập mục đích là để chuẩn bị cho việc đánh giá điểm giống nhau */
+    const currentProfile = await prisma.profiles.findUnique({
+        where: {
+            user_id: userId,
+        },
+        select: {
+            workplace: true,
+            education: true,
+            location: true,
+        },
+    });
+
+    // hàm để lấy mối quan hệ hiện tại của người dùng với những người khác để loại trừ những người đã có mối quan hệ
+    const relationships =
+        await prisma.friendships.findMany({
+            where: {
+                deleted_at: null,
+                OR: [
+                    {
+                        requester_id: userId,
+                    },
+                    {
+                        addressee_id: userId,
+                    },
+                ],
+            },
+            select: {
+                requester_id: true,
+                addressee_id: true,
+                status: true,
+            },
+        });
+
+    const currentFriendIds = relationships
+        .filter((relationship) => relationship.status === "accepted")
+        .map((relationship) =>
+            relationship.requester_id === userId
+                ? relationship.addressee_id
+                : relationship.requester_id
+        );
+
+    const excludedUserIds = new Set<bigint>(); /* Set là tập hợp không chứa giá trị trùng nhau*/
+
+    excludedUserIds.add(userId);
+
+    for (const relationship of relationships) { /* lấy ra những người đã có mối quan hệ để loại trừ với tài khoản đang đăng nhập */
+        excludedUserIds.add(
+            relationship.requester_id
+        );
+
+        excludedUserIds.add(
+            relationship.addressee_id
+        );
+    }
+    /* lấy những ứng viên phù hợp không bao gồm các ứng viên đã được loại ở phía trên */
+    const candidates = await prisma.users.findMany({
+        where: {
+            id: {
+                notIn: Array.from(excludedUserIds),
+            },
+            status: "active",
+            deleted: "NO",
+            deleted_at: null,
+        },
+        select: {
+            id: true,
+            user_name: true,
+            first_name: true,
+            last_name: true,
+            avatar: true,
+
+            profiles: {
+                select: {
+                    display_name: true,
+                    avatar_url: true,
+                    workplace: true,
+                    education: true,
+                    location: true,
+                },
+            },
+        },
+        orderBy: {
+            created_at: "desc",
+        },
+        take: Math.min(limit * 5, 200),
+    });
+
+    const candidateIds = candidates.map((candidate) => candidate.id);
+    const candidateIdSet = new Set(candidateIds);
+
+    const mutualFriendships =
+        currentFriendIds.length > 0 && candidateIds.length > 0
+            ? await prisma.friendships.findMany({
+                  where: {
+                      status: "accepted",
+                      deleted_at: null,
+                      AND: [
+                          {
+                              OR: [
+                                  {
+                                      requester_id: {
+                                          in: candidateIds,
+                                      },
+                                  },
+                                  {
+                                      addressee_id: {
+                                          in: candidateIds,
+                                      },
+                                  },
+                              ],
+                          },
+                          {
+                              OR: [
+                                  {
+                                      requester_id: {
+                                          in: currentFriendIds,
+                                      },
+                                  },
+                                  {
+                                      addressee_id: {
+                                          in: currentFriendIds,
+                                      },
+                                  },
+                              ],
+                          },
+                      ],
+                  },
+                  select: {
+                      requester_id: true,
+                      addressee_id: true,
+                  },
+              })
+            : [];
+
+    const mutualFriendCountByCandidate = new Map<bigint, number>();
+
+    for (const friendship of mutualFriendships) {
+        let candidateId: bigint | null = null;
+
+        if (candidateIdSet.has(friendship.requester_id)) {
+            candidateId = friendship.requester_id;
+        } else if (candidateIdSet.has(friendship.addressee_id)) {
+            candidateId = friendship.addressee_id;
+        }
+
+        if (candidateId !== null) {
+            const currentCount =
+                mutualFriendCountByCandidate.get(candidateId) ?? 0;
+
+            mutualFriendCountByCandidate.set(
+                candidateId,
+                currentCount + 1
+            );
+        }
+    }
+
+
+    /* tính điểm giống nhau giữa hồ sơ người dùng hiện tại và các ứng viên */
+    const scoredCandidates = candidates.map((candidate) => {
+        let matchScore = 0;
+        const matchReasons: string[] = [];
+        const mutualFriendCount =
+            mutualFriendCountByCandidate.get(candidate.id) ?? 0;
+
+        if (mutualFriendCount > 0) {
+            matchScore += mutualFriendCount * 10;
+            matchReasons.push(`${mutualFriendCount} bạn chung`);
+        }
+
+        if (
+            isSameProfileValue(
+                currentProfile?.location,
+                candidate.profiles?.location
+            )
+        ) {
+            matchScore += 5;
+            matchReasons.push("Cùng địa điểm");
+        }
+
+        if (
+            isSameProfileValue(
+                currentProfile?.education,
+                candidate.profiles?.education
+            )
+        ) {
+            matchScore += 4;
+            matchReasons.push("Cùng trường học");
+        }
+
+        if (
+            isSameProfileValue(
+                currentProfile?.workplace,
+                candidate.profiles?.workplace
+            )
+        ) {
+            matchScore += 4;
+            matchReasons.push("Cùng nơi làm việc");
+        }
+
+        return {
+            ...candidate,
+            matchScore,
+            matchReasons,
+            mutualFriendCount,
+        };
+    });
+
+    return scoredCandidates
+        .sort((firstCandidate, secondCandidate) => {
+            return (
+                secondCandidate.matchScore -
+                firstCandidate.matchScore
+            );
+        })
+        .slice(0, limit);
 };

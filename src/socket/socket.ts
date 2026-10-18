@@ -1,6 +1,11 @@
 import type { Server as HttpServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { verifyAccessToken } from "../utils/token";
+import {
+    addUserSocket,
+    getOnlineUserIds,
+    removeUserSocket,
+} from "./presence";
 
 let io: SocketIOServer | null = null;
 
@@ -66,16 +71,48 @@ export const initializeSocket = (
         // Đưa kết nối vào room riêng của user
         socket.join(userRoom);
 
+        const connectionResult = addUserSocket(
+            userId,
+            socket.id
+        );
+
         console.log(
             `User ${userId} connected with socket ${socket.id}`
         );
 
-        console.log("Socket rooms:", socket.rooms);
+        console.log(
+            `User ${userId} has ${connectionResult.connectionCount} active socket(s)`
+        );
+
+        if (connectionResult.becameOnline) {
+            socket.nsp.emit("presence:online", {
+                userId,
+            });
+        }
+
+        socket.emit("presence:snapshot", {
+            userIds: getOnlineUserIds(),
+        });
 
         socket.on("disconnect", (reason) => {
-            console.log(
-                `User ${userId} disconnected: ${reason}`
+            const disconnectResult = removeUserSocket(
+                userId,
+                socket.id
             );
+
+            console.log(
+                `User ${userId} disconnected socket ${socket.id}: ${reason}`
+            );
+
+            console.log(
+                `User ${userId} has ${disconnectResult.connectionCount} active socket(s)`
+            );
+
+            if (disconnectResult.becameOffline) {
+                socket.nsp.emit("presence:offline", {
+                    userId,
+                });
+            }
         });
     });
 
