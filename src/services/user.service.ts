@@ -80,6 +80,7 @@ export const getUserProfile = async (userId: bigint) => {
         prisma.friendships.count({
             where: {
                 status: "accepted",
+                deleted_at: null,
                 OR: [
                     { requester_id: userId },
                     { addressee_id: userId },
