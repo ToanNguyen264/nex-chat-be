@@ -55,6 +55,24 @@ const conversationListInclude = {
                     avatar: true,
                 },
             },
+            messages: {
+                select: {
+                    id: true,
+                    sender_id: true,
+                    content: true,
+                    message_type: true,
+                    deleted_at: true,
+                    users: {
+                        select: {
+                            id: true,
+                            user_name: true,
+                            first_name: true,
+                            last_name: true,
+                            avatar: true,
+                        },
+                    },
+                },
+            },
         },
     },
 } satisfies Prisma.conversationsInclude;
@@ -254,15 +272,42 @@ export const getConversations = async (
         });
 
     const hasNextPage = conversations.length > limit;
-    const items = hasNextPage
+    const pageItems = hasNextPage
         ? conversations.slice(0, limit)
         : conversations;
+
+    const latestMessageIds = pageItems.flatMap((conversation) =>
+        conversation.messages.map((message) => message.id)
+    );
+    const attachments = latestMessageIds.length
+        ? await prisma.attachments.findMany({
+              where: {
+                  owner_type: "message",
+                  owner_id: {
+                      in: latestMessageIds,
+                  },
+              },
+          })
+        : [];
+    const items = pageItems.map((conversation) => ({
+        ...conversation,
+        messages: conversation.messages.map((message) => ({
+            ...message,
+            attachments: attachments.filter(
+                (attachment) =>
+                    attachment.owner_id === message.id
+            ),
+            reactionSummary: [],
+            reactionCount: 0,
+            currentReaction: null,
+        })),
+    }));
 
     return {
         conversations: items,
         hasNextPage,
         nextCursor: hasNextPage
-            ? items.at(-1)?.id ?? null
+            ? pageItems.at(-1)?.id ?? null
             : null,
     };
 };

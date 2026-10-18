@@ -39,6 +39,61 @@ const upload = multer({
 
 export const uploadPostMedia = upload.array("media", 20);
 
+const messageMediaUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 25 * 1024 * 1024,
+        files: 1,
+    },
+    fileFilter: (_req, file, callback) => {
+        const allowedMessageMediaTypes = new Set([
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/gif",
+            "audio/mpeg",
+            "audio/wav",
+            "audio/ogg",
+            "audio/mp4",
+            "audio/webm",
+        ]);
+
+        if (!allowedMessageMediaTypes.has(file.mimetype)) {
+            return callback(
+                new Error("Only image and audio files are allowed")
+            );
+        }
+
+        callback(null, true);
+    },
+});
+
+export const uploadMessageMedia = (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    messageMediaUpload.single("media")(req, res, (error) => {
+        if (!error) {
+            next();
+            return;
+        }
+
+        const message =
+            error instanceof multer.MulterError &&
+            error.code === "LIMIT_FILE_SIZE"
+                ? "Message media must not exceed 25 MB"
+                : error instanceof Error
+                  ? error.message
+                  : "Invalid message media";
+
+        res.status(400).json({
+            success: false,
+            message,
+        });
+    });
+};
+
 const profileImageUpload = multer({
     storage: multer.memoryStorage(),
     limits: {

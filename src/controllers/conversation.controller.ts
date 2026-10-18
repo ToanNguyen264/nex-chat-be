@@ -3,10 +3,22 @@ import type { Response } from "express";
 import type { AuthRequest } from "../middlewares/auth.middleware";
 import * as conversationService from "../services/conversation.service";
 import * as messageService from "../services/message.service";
+import * as storageService from "../services/storage.service";
 import {
+    emitMessageReactionUpdated,
     emitNewMessage,
     serializeMessage,
 } from "../socket/message.events";
+import type { reactions_reaction_type } from "@prisma/client";
+
+const MESSAGE_REACTIONS = new Set<reactions_reaction_type>([
+    "like",
+    "love",
+    "haha",
+    "wow",
+    "sad",
+    "angry",
+]);
 
 export const getConversations = async (
     req: AuthRequest,
@@ -78,24 +90,11 @@ export const getConversations = async (
                         })
                     ),
                 messages: conversation.messages.map(
-                    (message) => ({
-                        ...message,
-                        id: message.id.toString(),
-                        conversation_id:
-                            message.conversation_id.toString(),
-                        sender_id:
-                            message.sender_id?.toString() ??
-                            null,
-                        reply_to_message_id:
-                            message.reply_to_message_id?.toString() ??
-                            null,
-                        users: message.users
-                            ? {
-                                  ...message.users,
-                                  id: message.users.id.toString(),
-                              }
-                            : null,
-                    })
+                    (message) =>
+                        serializeMessage({
+                            ...message,
+                            attachments: message.attachments,
+                        })
                 ),
             })
         );
@@ -188,25 +187,7 @@ export const getConversationMessages = async (
             });
         }
 
-        const messages = result.messages.map(
-            (message) => ({
-                ...message,
-                id: message.id.toString(),
-                conversation_id:
-                    message.conversation_id.toString(),
-                sender_id:
-                    message.sender_id?.toString() ?? null,
-                reply_to_message_id:
-                    message.reply_to_message_id?.toString() ??
-                    null,
-                users: message.users
-                    ? {
-                          ...message.users,
-                          id: message.users.id.toString(),
-                      }
-                    : null,
-            })
-        );
+        const messages = result.messages.map(serializeMessage);
 
         return res.status(200).json({
             success: true,
@@ -350,6 +331,268 @@ export const sendTextMessage = async (
         });
     } catch (error) {
         console.error("SEND TEXT MESSAGE ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+export const sendMediaMessage = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    let uploadedObjectKey: string | null = null;
+    let messagePersisted = false;
+
+    try {
+        if (!req.userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
+
+        const { conversationId } = req.params;
+
+        if (
+            !conversationId ||
+            Array.isArray(conversationId) ||
+            !/^[1-9]\d*$/.test(conversationId)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid conversation ID",
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "Image or audio file is required",
+            });
+        }
+
+        const isImage = req.file.mimetype.startsWith("image/");
+        const isAudio = req.file.mimetype.startsWith("audio/");
+
+        if (!isImage && !isAudio) {
+            return res.status(400).json({
+                success: false,
+                message: "Only image and audio files are allowed",
+            });
+        }
+
+        if (isImage && req.file.size > 10 * 1024 * 1024) {
+            return res.status(400).json({
+                success: false,
+                message: "Image must not exceed 10 MB",
+            });
+        }
+
+        const content =
+            typeof req.body.content === "string"
+                ? req.body.content.trim()
+                : "";
+
+        if (content.length > 5000) {
+            return res.status(400).json({
+                success: false,
+                message: "content must not exceed 5000 characters",
+            });
+        }
+
+        const replyToMessageId = req.body.replyToMessageId;
+
+        if (
+            replyToMessageId !== undefined &&
+            replyToMessageId !== null &&
+            replyToMessageId !== "" &&
+            (typeof replyToMessageId !== "string" ||
+                !/^[1-9]\d*$/.test(replyToMessageId))
+        ) {
+            return res.status(400).json({
+                success: false,
+                message:
+                    "replyToMessageId must be a positive integer string or null",
+            });
+        }
+
+        const media =
+            await storageService.uploadMessageMedia(req.file);
+        uploadedObjectKey = media.objectKey;
+
+        const result = await messageService.createMediaMessage({
+            userId: req.userId,
+            conversationId: BigInt(conversationId),
+            content: content || null,
+            replyToMessageId:
+                typeof replyToMessageId === "string" &&
+                replyToMessageId !== ""
+                    ? BigInt(replyToMessageId)
+                    : null,
+            messageType: isImage ? "image" : "file",
+            media,
+        });
+
+        if (!result.success) {
+            await storageService.deleteMessageMedia(
+                media.objectKey
+            );
+            uploadedObjectKey = null;
+
+            switch (result.reason) {
+                case "CONVERSATION_NOT_FOUND":
+                    return res.status(404).json({
+                        success: false,
+                        message:
+                            "Conversation not found or you are not a member",
+                    });
+
+                case "CHAT_NOT_ALLOWED":
+                    return res.status(403).json({
+                        success: false,
+                        message:
+                            "You are not allowed to send messages in this conversation",
+                    });
+
+                case "REPLY_MESSAGE_NOT_FOUND":
+                    return res.status(400).json({
+                        success: false,
+                        message:
+                            "Reply message does not exist in this conversation",
+                    });
+            }
+        }
+
+        messagePersisted = true;
+        const serializedMessage = serializeMessage(
+            result.message
+        );
+
+        emitNewMessage({
+            message: result.message,
+            recipientUserIds: result.recipientUserIds,
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: "Media message sent successfully",
+            data: serializedMessage,
+        });
+    } catch (error) {
+        if (uploadedObjectKey && !messagePersisted) {
+            try {
+                await storageService.deleteMessageMedia(
+                    uploadedObjectKey
+                );
+            } catch (cleanupError) {
+                console.error(
+                    "DELETE ORPHAN MESSAGE MEDIA ERROR:",
+                    cleanupError
+                );
+            }
+        }
+
+        console.error("SEND MEDIA MESSAGE ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+export const setMessageReaction = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    try {
+        if (!req.userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
+
+        const { conversationId, messageId } = req.params;
+
+        if (
+            !conversationId ||
+            Array.isArray(conversationId) ||
+            !/^[1-9]\d*$/.test(conversationId) ||
+            !messageId ||
+            Array.isArray(messageId) ||
+            !/^[1-9]\d*$/.test(messageId)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid conversation or message ID",
+            });
+        }
+
+        const reactionType = req.body?.reactionType;
+
+        if (
+            typeof reactionType !== "string" ||
+            !MESSAGE_REACTIONS.has(
+                reactionType as reactions_reaction_type
+            )
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid reaction type",
+            });
+        }
+
+        const result = await messageService.setMessageReaction(
+            req.userId,
+            BigInt(conversationId),
+            BigInt(messageId),
+            reactionType as reactions_reaction_type
+        );
+
+        if (!result.success) {
+            const isChatForbidden =
+                result.reason === "CHAT_NOT_ALLOWED";
+
+            return res.status(isChatForbidden ? 403 : 404).json({
+                success: false,
+                message:
+                    isChatForbidden
+                        ? "You are not allowed to react in this conversation"
+                        : result.reason === "MESSAGE_NOT_FOUND"
+                        ? "Message not found"
+                        : "Conversation not found or you are not a member",
+            });
+        }
+
+        const data = {
+            conversationId,
+            messageId,
+            currentReaction: result.currentReaction,
+            reactionSummary: result.reactionSummary,
+            reactionCount: result.reactionCount,
+        };
+
+        emitMessageReactionUpdated({
+            conversationId: BigInt(conversationId),
+            messageId: BigInt(messageId),
+            actorUserId: req.userId,
+            currentReaction: result.currentReaction,
+            reactionSummary: result.reactionSummary,
+            reactionCount: result.reactionCount,
+            recipientUserIds: result.recipientUserIds,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Message reaction updated successfully",
+            data,
+        });
+    } catch (error) {
+        console.error("SET MESSAGE REACTION ERROR:", error);
 
         return res.status(500).json({
             success: false,
