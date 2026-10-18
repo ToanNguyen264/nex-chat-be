@@ -1,7 +1,8 @@
-import type { Response } from "express";
+import type { Response, Request } from "express";
 
 import type { AuthRequest } from "../middlewares/auth.middleware";
 import * as friendService from "../services/friend.service";
+
 
 const serializeFriendship = <T extends {
     id: bigint;
@@ -571,6 +572,53 @@ export const unblockUser = async (req: AuthRequest, res: Response) => {
         });
     } catch (error) {
         console.error("UNBLOCK USER ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+
+export const getFriendSuggestions = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    try {
+        if (!req.userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
+
+        const requestedLimit = Number(req.query.limit ?? 20);
+
+        const limit = Number.isInteger(requestedLimit)
+            ? Math.min(Math.max(requestedLimit, 1), 50)
+            : 20;
+
+        const candidates =
+            await friendService.getFriendSuggestionCandidates({
+                userId: req.userId,
+                limit,
+            });
+
+        const data = candidates.map((candidate) => ({
+            ...candidate,
+            id: candidate.id.toString(), /* chuyển id về dạng string để phù hợp với kiểu dữ liệu của JSON */
+        }));
+
+        return res.status(200).json({
+            success: true,
+            data,
+        });
+    } catch (error) {
+        console.error(
+            "GET FRIEND SUGGESTIONS ERROR:",
+            error
+        );
 
         return res.status(500).json({
             success: false,

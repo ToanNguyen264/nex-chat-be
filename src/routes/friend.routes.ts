@@ -57,4 +57,10 @@ router.delete(
     friendController.removeFriend
 );
 
+router.get(
+    "/suggestions",
+    auth,
+    friendController.getFriendSuggestions
+);
+
 export default router;
