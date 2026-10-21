@@ -7,6 +7,8 @@ import {
 } from "@prisma/client";
 import { buildCallEndUpdate } from "./call.lifecycle";
 
+import { scheduleCallTimeout } from "../../queues/call-timeout.queue";
+
 type CreateOutgoingCallInput = {
     userId: bigint;
     conversationId: bigint;
@@ -245,14 +247,14 @@ export const createOutgoingCall = async (
     // Hai người vẫn phải là bạn bè và không chặn nhau
     const friendship = conversation.direct_key
         ? await prisma.friendships.findUnique({
-              where: {
-                  pair_key: conversation.direct_key,
-              },
-              select: {
-                  status: true,
-                  deleted_at: true,
-              },
-          })
+            where: {
+                pair_key: conversation.direct_key,
+            },
+            select: {
+                status: true,
+                deleted_at: true,
+            },
+        })
         : null;
 
     if (
@@ -282,7 +284,26 @@ export const createOutgoingCall = async (
                 active_key: activeKey,
             },
         });
+        try {
+            await scheduleCallTimeout(call.id);
+        } catch (queueError) {
+            // Redis/BullMQ không nhận được timeout job.
+            // Hủy call vừa tạo để không bị mắc kẹt ở ringing.
+            await prisma.calls.updateMany({
+                where: {
+                    id: call.id,
+                    status: "ringing",
+                },
 
+                data: {
+                    status: "cancelled",
+                    ended_at: new Date(),
+                    active_key: null,
+                },
+            });
+
+            throw queueError;
+        }
         return {
             success: true,
             call,
@@ -292,7 +313,7 @@ export const createOutgoingCall = async (
     } catch (error) {
         if (
             error instanceof
-                Prisma.PrismaClientKnownRequestError &&
+            Prisma.PrismaClientKnownRequestError &&
             error.code === "P2002"
         ) {
             // Kiểm tra có phải active_key bị trùng không
@@ -360,14 +381,14 @@ export const respondToIncomingCall = async (
         data:
             input.action === "accept"
                 ? {
-                      status: "ongoing",
-                      answered_at: now,
-                  }
+                    status: "ongoing",
+                    answered_at: now,
+                }
                 : {
-                      status: "rejected",
-                      ended_at: now,
-                      active_key: null,
-                  },
+                    status: "rejected",
+                    ended_at: now,
+                    active_key: null,
+                },
     });
 
     if (updateResult.count === 0) {

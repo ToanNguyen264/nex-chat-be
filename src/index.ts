@@ -10,6 +10,7 @@ import conversationRouters from "./routes/conversation.routes";
 import { createServer } from "http";
 import { initializeSocket } from "./socket/socket";
 import callRouters from "./routes/call/call.routes";
+import { startCallTimeoutWorker } from "./workers/call-timeout.worker";
 dotenv.config();
 
 const app = express();
@@ -32,4 +33,5 @@ const PORT = process.env.PORT || 3000;
 
 httpServer.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
+    startCallTimeoutWorker();
 });

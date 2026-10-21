@@ -52,7 +52,42 @@ services:
     volumes:
       - nex_minio_data:/data
 
+  redis:
+    image: redis:7.4-alpine
+    container_name: nex-redis
+    restart: unless-stopped #tự chạy lại khi container bị dừng hoặc lỗi
+
+    environment: # đưa password vào biến môi trường để tránh lộ password trong command
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+
+    command: #Append Only File tránh trường hợp mất dữ liệu khi container bị dừng hoặc lỗi
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+
+    ports:
+      - "127.0.0.1:6379:6379"
+
+    volumes:
+      - nex_redis_data:/data
+
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep PONG'
+      ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   nex_mysql_data:
   nex_minio_data:
     external: true #yêu cầu dùng lại container đã tồn tại không tạo mới nếu có
+  nex_redis_data: # cài thêm thư viện BullMQ để lưu trữ dữ liệu của Redis
