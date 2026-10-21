@@ -55,11 +55,13 @@ model conversation_members {
 model conversations {
   id                   BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
   type                 conversations_type     @default(direct)
+  direct_key           String?                @unique(map: "uq_conversations_direct_key") @db.VarChar(50)
   name                 String?                @db.VarChar(255)
   avatar_url           String?                @db.VarChar(500)
   created_by           BigInt?                @db.UnsignedBigInt
   created_at           DateTime               @default(now()) @db.DateTime(0)
   updated_at           DateTime               @default(now()) @db.DateTime(0)
+  calls                calls[]
   conversation_members conversation_members[]
   users                users?                 @relation(fields: [created_by], references: [id], map: "fk_conversations_creator")
   messages             messages[]
@@ -133,6 +135,7 @@ model messages {
   @@index([conversation_id], map: "idx_messages_conversation")
   @@index([created_at], map: "idx_messages_created_at")
   @@index([sender_id], map: "idx_messages_sender")
+  @@index([conversation_id, id(sort: Desc)], map: "idx_messages_conversation_id_desc")
 }
 
 model notifications {
@@ -234,6 +237,8 @@ model users {
   created_at                                  DateTime                    @default(now()) @db.DateTime(0)
   updated_at                                  DateTime                    @default(now()) @db.DateTime(0)
   phone_number                                String                      @unique(map: "uq_users_phone_number") @db.VarChar(100)
+  calls_calls_caller_idTousers                calls[]                     @relation("calls_caller_idTousers")
+  calls_calls_callee_idTousers                calls[]                     @relation("calls_callee_idTousers")
   comments                                    comments[]
   conversation_members                        conversation_members[]
   conversations                               conversations[]
@@ -250,6 +255,28 @@ model users {
   refresh_tokens                              refresh_tokens[]
   two_factor_recovery_codes                   two_factor_recovery_codes[]
   user_two_factor_auth                        user_two_factor_auth?
+}
+
+model calls {
+  id                           BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  conversation_id              BigInt          @db.UnsignedBigInt
+  caller_id                    BigInt          @db.UnsignedBigInt
+  callee_id                    BigInt          @db.UnsignedBigInt
+  room_name                    String          @unique(map: "uq_calls_room_name") @db.VarChar(255)
+  call_type                    calls_call_type @default(audio)
+  status                       calls_status    @default(ringing)
+  active_key                   String?         @unique(map: "uq_calls_active_key") @db.VarChar(255)
+  answered_at                  DateTime?       @db.DateTime(0)
+  ended_at                     DateTime?       @db.DateTime(0)
+  created_at                   DateTime        @default(now()) @db.DateTime(0)
+  updated_at                   DateTime        @default(now()) @db.DateTime(0)
+  conversations                conversations   @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "calls_conversations_FK")
+  users_calls_caller_idTousers users           @relation("calls_caller_idTousers", fields: [caller_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "calls_users_FK")
+  users_calls_callee_idTousers users           @relation("calls_callee_idTousers", fields: [callee_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "calls_users_FK_1")
+
+  @@index([callee_id, status], map: "idx_calls_callee_status")
+  @@index([caller_id, status], map: "idx_calls_caller_status")
+  @@index([conversation_id, created_at], map: "idx_calls_conversation_created")
 }
 
 enum conversations_type {
@@ -321,4 +348,18 @@ enum messages_message_type {
 enum users_deleted {
   YES
   NO
+}
+
+enum calls_call_type {
+  audio
+  video
+}
+
+enum calls_status {
+  ringing
+  ongoing
+  rejected
+  cancelled
+  missed
+  ended
 }

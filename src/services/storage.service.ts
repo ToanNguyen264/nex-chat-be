@@ -54,6 +54,47 @@ export const uploadPostMedia = async (
     };
 };
 
+export const uploadMessageMedia = async (
+    file: UploadFileInput
+): Promise<UploadedMedia> => {
+    const extension = extname(file.originalname).toLowerCase();
+    const dateFolder = new Date().toISOString().slice(0, 10);
+    const objectKey =
+        `messages/${dateFolder}/${randomUUID()}${extension}`;
+
+    await s3.send(
+        new PutObjectCommand({
+            Bucket: S3_BUCKET,
+            Key: objectKey,
+            Body: file.buffer,
+            ContentType: file.mimetype,
+            ContentLength: file.size,
+        })
+    );
+
+    return {
+        objectKey,
+        fileName: file.originalname,
+        fileType: file.mimetype,
+        fileSize: file.size,
+    };
+};
+
+export const deleteMessageMedia = async (
+    objectKey: string
+): Promise<void> => {
+    if (!objectKey.startsWith("messages/")) {
+        return;
+    }
+
+    await s3.send(
+        new DeleteObjectCommand({
+            Bucket: S3_BUCKET,
+            Key: objectKey,
+        })
+    );
+};
+
 export const getPublicMediaUrl = (objectKey: string): string => {
     const publicUrl = process.env.S3_PUBLIC_URL;
 
