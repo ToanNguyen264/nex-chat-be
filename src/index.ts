@@ -9,7 +9,7 @@ import notificationRouters from "./routes/notification.routes";
 import conversationRouters from "./routes/conversation.routes";
 import { createServer } from "http";
 import { initializeSocket } from "./socket/socket";
-
+import callRouters from "./routes/call/call.routes";
 dotenv.config();
 
 const app = express();
@@ -26,6 +26,7 @@ app.use("/api/posts", postRouters);
 app.use("/api/friends", friendRouters);
 app.use("/api/notifications", notificationRouters);
 app.use("/api/conversations", conversationRouters);
+app.use("/api/calls", callRouters);
 
 const PORT = process.env.PORT || 3000;
 

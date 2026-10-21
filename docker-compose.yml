@@ -18,5 +18,41 @@ services:
       timeout: 5s
       retries: 10
 
+  livekit:
+    image: livekit/livekit-server:v1.13.4
+    container_name: nex-chat-livekit
+    command:
+      - --config
+      - /etc/livekit.yaml
+    restart: unless-stopped
+    ports:
+      - "7880:7880/tcp"
+      - "7881:7881/tcp"
+      - "7882:7882/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+
+  minio:
+    image: elestio/minio:latest
+    container_name: nex-minio
+    restart: unless-stopped
+    command:
+      - server
+      - --address
+      - ":9000"
+      - --console-address
+      - ":9001"
+      - /data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - nex_minio_data:/data
+
 volumes:
   nex_mysql_data:
+  nex_minio_data:
+    external: true #yêu cầu dùng lại container đã tồn tại không tạo mới nếu có
