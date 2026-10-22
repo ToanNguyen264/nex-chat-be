@@ -1,4 +1,5 @@
 import prisma from "../configs/prisma";
+import { canViewPost } from "./post/post-access.service";
 
 const commentAuthorSelect = {
     first_name: true,
@@ -7,18 +8,11 @@ const commentAuthorSelect = {
     avatar: true,
 } as const;
 
-export const getCommentsByPostId = async (postId: bigint) => {
-    const post = await prisma.posts.findFirst({
-        where: {
-            id: postId,
-            deleted_at: null,
-        },
-        select: {
-            id: true,
-        },
-    });
-
-    if (!post) {
+export const getCommentsByPostId = async (
+    postId: bigint,
+    viewerId: bigint
+) => {
+    if (!(await canViewPost(viewerId, postId))) {
         return null;
     }
 
@@ -43,17 +37,7 @@ export const createComment = async (
     userId: bigint,
     content: string
 ) => {
-    const post = await prisma.posts.findFirst({
-        where: {
-            id: postId,
-            deleted_at: null,
-        },
-        select: {
-            id: true,
-        },
-    });
-
-    if (!post) {
+    if (!(await canViewPost(userId, postId))) {
         return null;
     }
 
