@@ -10,6 +10,7 @@ import {
 } from "./post/post-visibility";
 import type { PostPrivacy } from "./post/post-visibility";
 import { canViewPost } from "./post/post-access.service";
+import { buildPostReactionStates } from "./post/post-reaction-summary";
 
 export const createPost = async (
     userId: bigint,
@@ -126,38 +127,60 @@ const getPaginatedPosts = async (
         })
         : [];
 
-    const reactions = postIds.length > 0
-        ? await prisma.reactions.findMany({
+    const groupedReactions = postIds.length > 0
+        ? await prisma.reactions.groupBy({
+            by: ["target_id", "reaction_type"],
             where: {
                 target_type: "post",
                 target_id: {
                     in: postIds,
                 },
             },
+            _count: {
+                _all: true,
+            },
+        })
+        : [];
+
+    const viewerReactions = postIds.length > 0
+        ? await prisma.reactions.findMany({
+            where: {
+                user_id: viewerId,
+                target_type: "post",
+                target_id: {
+                    in: postIds,
+                },
+            },
             select: {
-                user_id: true,
                 target_id: true,
                 reaction_type: true,
             },
         })
         : [];
 
+    const reactionStates = buildPostReactionStates(
+        postIds,
+        groupedReactions,
+        viewerReactions
+    );
+
     const hydratedPosts = pagePosts.map((post) => {
         const { _count, ...postData } = post;
+        const reactionState = reactionStates.get(
+            post.id.toString()
+        );
 
         return {
             ...postData,
             attachments: attachments.filter(
                 (attachment) => attachment.owner_id === post.id
             ),
-            reactionCount: reactions.filter(
-                (reaction) => reaction.target_id === post.id
-            ).length,
-            currentReaction: reactions.find(
-                (reaction) =>
-                    reaction.target_id === post.id &&
-                    reaction.user_id === viewerId
-            )?.reaction_type ?? null,
+            reactionCount:
+                reactionState?.reactionCount ?? 0,
+            reactionSummary:
+                reactionState?.reactionSummary ?? [],
+            currentReaction:
+                reactionState?.currentReaction ?? null,
             commentCount: _count.comments,
         };
     });
@@ -373,15 +396,33 @@ export const deletePost = async (
     postId: bigint,
     userId: bigint
 ) => {
-    return prisma.posts.updateMany({
-        where: {
-            id: postId,
-            user_id: userId,
-            deleted_at: null,
-        },
-        data: {
-            deleted_at: new Date(),
-        },
+    return prisma.$transaction(async (transaction) => {
+        const post = await transaction.posts.findFirst({
+            where: {
+                id: postId,
+                user_id: userId,
+                deleted_at: null,
+            },
+            select: {
+                id: true,
+                privacy: true,
+            },
+        });
+
+        if (!post) {
+            return null;
+        }
+
+        await transaction.posts.update({
+            where: {
+                id: postId,
+            },
+            data: {
+                deleted_at: new Date(),
+            },
+        });
+
+        return post;
     });
 };
 
