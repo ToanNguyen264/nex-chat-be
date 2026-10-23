@@ -1,10 +1,20 @@
 import prisma from "../configs/prisma";
-import type { reactions_reaction_type } from "@prisma/client";
+import type {
+    Prisma,
+    reactions_reaction_type,
+} from "@prisma/client";
 import type { UploadedMedia } from "./storage.service";
+import {
+    extractAcceptedFriendIds,
+    getProfileVisibility,
+} from "./post/post-visibility";
+import type { PostPrivacy } from "./post/post-visibility";
+import { canViewPost } from "./post/post-access.service";
 
 export const createPost = async (
     userId: bigint,
     content: string,
+    privacy: PostPrivacy,
     media: UploadedMedia[] = []
 ) => {
     return prisma.$transaction(async (transaction) => {
@@ -12,6 +22,7 @@ export const createPost = async (
             data: {
                 user_id: userId,
                 content,
+                privacy,
             },
             include: {
                 users: {
@@ -47,14 +58,36 @@ export const createPost = async (
     });
 };
 
-export const getPosts = async (userId: bigint) => {
+type GetPostsInput = {
+    viewerId: bigint;
+    cursor: bigint | null;
+    limit: number;
+};
+
+type GetUserPostsInput = GetPostsInput & {
+    ownerId: bigint;
+};
+
+const getPaginatedPosts = async (
+    where: Prisma.postsWhereInput,
+    viewerId: bigint,
+    cursor: bigint | null,
+    limit: number
+) => {
     const posts = await prisma.posts.findMany({
-        where: {
-            deleted_at: null,
-        },
+        where,
         orderBy: {
-            created_at: "desc",
+            id: "desc",
         },
+        take: limit + 1,
+        ...(cursor !== null
+            ? {
+                  cursor: {
+                      id: cursor,
+                  },
+                  skip: 1,
+              }
+            : {}),
         include: {
             users: {
                 select: {
@@ -76,7 +109,11 @@ export const getPosts = async (userId: bigint) => {
         },
     });
 
-    const postIds = posts.map((post) => post.id);
+    const hasNextPage = posts.length > limit;
+    const pagePosts = hasNextPage
+        ? posts.slice(0, limit)
+        : posts;
+    const postIds = pagePosts.map((post) => post.id);
 
     const attachments = postIds.length > 0
         ? await prisma.attachments.findMany({
@@ -105,7 +142,7 @@ export const getPosts = async (userId: bigint) => {
         })
         : [];
 
-    return posts.map((post) => {
+    const hydratedPosts = pagePosts.map((post) => {
         const { _count, ...postData } = post;
 
         return {
@@ -119,11 +156,154 @@ export const getPosts = async (userId: bigint) => {
             currentReaction: reactions.find(
                 (reaction) =>
                     reaction.target_id === post.id &&
-                    reaction.user_id === userId
+                    reaction.user_id === viewerId
             )?.reaction_type ?? null,
             commentCount: _count.comments,
         };
     });
+
+    return {
+        posts: hydratedPosts,
+        nextCursor: hasNextPage
+            ? pagePosts[pagePosts.length - 1]?.id ?? null
+            : null,
+        hasNextPage,
+    };
+};
+
+export const getHomePosts = async ({
+    viewerId,
+    cursor,
+    limit,
+}: GetPostsInput) => {
+    const relationships = await prisma.friendships.findMany({
+        where: {
+            status: "accepted",
+            deleted_at: null,
+            OR: [
+                {
+                    requester_id: viewerId,
+                },
+                {
+                    addressee_id: viewerId,
+                },
+            ],
+        },
+        select: {
+            requester_id: true,
+            addressee_id: true,
+            status: true,
+            deleted_at: true,
+        },
+    });
+
+    const friendIds = extractAcceptedFriendIds(
+        viewerId,
+        relationships
+    );
+    const visibilityRules: Prisma.postsWhereInput[] = [
+        {
+            user_id: viewerId,
+        },
+    ];
+
+    if (friendIds.length > 0) {
+        visibilityRules.push({
+            user_id: {
+                in: friendIds,
+            },
+            privacy: {
+                in: ["public", "friends"],
+            },
+        });
+    }
+
+    return getPaginatedPosts(
+        {
+            deleted_at: null,
+            users: {
+                status: "active",
+                deleted: "NO",
+                deleted_at: null,
+            },
+            OR: visibilityRules,
+        },
+        viewerId,
+        cursor,
+        limit
+    );
+};
+
+export const getUserPosts = async ({
+    viewerId,
+    ownerId,
+    cursor,
+    limit,
+}: GetUserPostsInput) => {
+    const owner = await prisma.users.findFirst({
+        where: {
+            id: ownerId,
+            status: "active",
+            deleted: "NO",
+            deleted_at: null,
+        },
+        select: {
+            id: true,
+        },
+    });
+
+    if (!owner) {
+        return null;
+    }
+
+    const relationship =
+        viewerId === ownerId
+            ? null
+            : await prisma.friendships.findFirst({
+                  where: {
+                      deleted_at: null,
+                      OR: [
+                          {
+                              requester_id: viewerId,
+                              addressee_id: ownerId,
+                          },
+                          {
+                              requester_id: ownerId,
+                              addressee_id: viewerId,
+                          },
+                      ],
+                  },
+                  select: {
+                      status: true,
+                  },
+              });
+
+    const allowedPrivacy = getProfileVisibility(
+        viewerId,
+        ownerId,
+        relationship?.status ?? null
+    );
+
+    if (allowedPrivacy === null) {
+        return {
+            posts: [],
+            nextCursor: null,
+            hasNextPage: false,
+        };
+    }
+
+    return getPaginatedPosts(
+        {
+            user_id: ownerId,
+            deleted_at: null,
+            privacy: {
+                in: allowedPrivacy,
+            },
+        },
+        viewerId,
+        cursor,
+        limit
+    );
 };
 
 export const setPostReaction = async (
@@ -131,21 +311,11 @@ export const setPostReaction = async (
     userId: bigint,
     reactionType: reactions_reaction_type
 ) => {
+    if (!(await canViewPost(userId, postId))) {
+        return null;
+    }
+
     return prisma.$transaction(async (transaction) => {
-        const post = await transaction.posts.findFirst({
-            where: {
-                id: postId,
-                deleted_at: null,
-            },
-            select: {
-                id: true,
-            },
-        });
-
-        if (!post) {
-            return null;
-        }
-
         const existingReaction = await transaction.reactions.findFirst({
             where: {
                 user_id: userId,
@@ -212,5 +382,68 @@ export const deletePost = async (
         data: {
             deleted_at: new Date(),
         },
+    });
+};
+
+export const updatePost = async (
+    postId: bigint,
+    userId: bigint,
+    content: string,
+    privacy: PostPrivacy
+) => {
+    return prisma.$transaction(async (transaction) => {
+        const post = await transaction.posts.findFirst({
+            where: {
+                id: postId,
+                user_id: userId,
+                deleted_at: null,
+            },
+            select: {
+                id: true,
+            },
+        });
+
+        if (!post) {
+            return {
+                status: "not_found" as const,
+            };
+        }
+
+        if (!content) {
+            const attachmentCount =
+                await transaction.attachments.count({
+                    where: {
+                        owner_type: "post",
+                        owner_id: postId,
+                    },
+                });
+
+            if (attachmentCount === 0) {
+                return {
+                    status: "content_required" as const,
+                };
+            }
+        }
+
+        const updatedPost = await transaction.posts.update({
+            where: {
+                id: postId,
+            },
+            data: {
+                content,
+                privacy,
+            },
+            select: {
+                id: true,
+                content: true,
+                privacy: true,
+                updated_at: true,
+            },
+        });
+
+        return {
+            status: "updated" as const,
+            post: updatedPost,
+        };
     });
 };
