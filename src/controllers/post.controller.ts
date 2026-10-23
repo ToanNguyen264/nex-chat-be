@@ -7,6 +7,9 @@ import {
     parsePostPrivacy,
     parsePostUpdateInput,
 } from "../services/post/post-query";
+import { schedulePostFeedChange } from "../queues/post-feed.queue";
+import type { PostFeedAction } from "../services/post/post-feed.types";
+import type { PostPrivacy } from "../services/post/post-visibility";
 
 type FeedPost = Awaited<
     ReturnType<typeof postService.getHomePosts>
@@ -26,6 +29,28 @@ const serializePost = (post: FeedPost) => ({
         file_size: attachment.file_size?.toString() ?? null,
     })),
 });
+
+type QueuePostFeedChangeInput = {
+    action: PostFeedAction;
+    postId: bigint;
+    ownerId: bigint;
+    privacy: PostPrivacy;
+};
+
+const queuePostFeedChangeSafely = async (
+    input: QueuePostFeedChangeInput
+) => {
+    try {
+        await schedulePostFeedChange(input);
+    } catch (error) {
+        console.error("QUEUE POST FEED CHANGE ERROR:", {
+            action: input.action,
+            postId: input.postId.toString(),
+            ownerId: input.ownerId.toString(),
+            error,
+        });
+    }
+};
 
 export const createPost = async (
     req: AuthRequest,
@@ -77,6 +102,13 @@ export const createPost = async (
             privacy,
             media
         );
+
+        await queuePostFeedChangeSafely({
+            action: "created",
+            postId: post.id,
+            ownerId: userId,
+            privacy: post.privacy,
+        });
 
         return res.status(201).json({
             success: true,
@@ -329,12 +361,19 @@ export const deletePost = async (
             userId
         );
 
-        if (result.count === 0) {
+        if (!result) {
             return res.status(404).json({
                 success: false,
                 message: "Post not found or you cannot delete it",
             });
         }
+
+        await queuePostFeedChangeSafely({
+            action: "deleted",
+            postId: result.id,
+            ownerId: userId,
+            privacy: result.privacy,
+        });
 
         return res.status(200).json({
             success: true,
@@ -404,6 +443,13 @@ export const updatePost = async (
                 message: "Post content is required",
             });
         }
+
+        await queuePostFeedChangeSafely({
+            action: "updated",
+            postId: result.post.id,
+            ownerId: userId,
+            privacy: result.post.privacy,
+        });
 
         return res.status(200).json({
             success: true,
