@@ -36,7 +36,7 @@ export const uploadPostMedia = async (
     const objectKey =
         `posts/${dateFolder}/${randomUUID()}${extension}`;
 
-    await s3.send(
+    await s3.send( /* @smithy/signature-v4 của AWS SDK: kí signature */
         new PutObjectCommand({
             Bucket: S3_BUCKET,
             Key: objectKey,
@@ -62,7 +62,12 @@ export const uploadMessageMedia = async (
     const objectKey =
         `messages/${dateFolder}/${randomUUID()}${extension}`;
 
-    await s3.send(
+    await s3.send( /* @smithy/signature-v4 của AWS SDK: kí signature */
+        /* 
+            Lấy Host (từ S3_ENDPOINT) + Đường dẫn /${Bucket}/${Key} + Thời gian hiện tại.
+            Dùng S3_SECRET_ACCESS_KEY băm (HMAC-SHA256) thành chữ ký và nhét vào HTTP Header Authorization: AWS4-HMAC-SHA256 ... rồi mới gửi lên server MinIO.
+        
+        */
         new PutObjectCommand({
             Bucket: S3_BUCKET,
             Key: objectKey,
