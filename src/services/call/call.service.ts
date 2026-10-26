@@ -5,7 +5,10 @@ import {
     Prisma,
     type calls_call_type,
 } from "@prisma/client";
-import { buildCallEndUpdate } from "./call.lifecycle";
+import {
+    buildCallEndUpdate,
+    createCallSystemMessage,
+} from "./call.lifecycle";
 
 import { scheduleCallTimeout } from "../../queues/call-timeout.queue";
 
@@ -411,10 +414,16 @@ export const respondToIncomingCall = async (
         } as const;
     }
 
+    const systemMessage =
+        input.action === "reject"
+            ? await createCallSystemMessage(updatedCall)
+            : null;
+
     return {
         success: true,
         call: updatedCall,
         action: input.action,
+        systemMessage,
     } as const;
 };
 
@@ -482,8 +491,12 @@ export const endCall = async (input: EndCallInput) => {
         } as const;
     }
 
+    const systemMessage =
+        await createCallSystemMessage(updatedCall);
+
     return {
         success: true,
         call: updatedCall,
+        systemMessage,
     } as const;
 };

@@ -1,4 +1,5 @@
 import prisma from "../../configs/prisma";
+import { createCallSystemMessage } from "./call.lifecycle";
 
 export const markRingingCallAsMissed = async (
     callId: bigint
@@ -36,7 +37,9 @@ export const markRingingCallAsMissed = async (
             conversation_id: true,
             caller_id: true,
             callee_id: true,
+            call_type: true,
             status: true,
+            answered_at: true,
             ended_at: true,
         },
     });
@@ -48,8 +51,12 @@ export const markRingingCallAsMissed = async (
         } as const;
     }
 
+    const systemMessage =
+        await createCallSystemMessage(call);
+
     return {
         expired: true,
         call,
+        systemMessage,
     } as const;
 };
