@@ -564,6 +564,7 @@ export const getFriends = async (userId: bigint) => {
                     first_name: true,
                     last_name: true,
                     avatar: true,
+                    last_seen_at: true,
                 },
             },
             users_friendships_addressee_idTousers: {
@@ -573,6 +574,7 @@ export const getFriends = async (userId: bigint) => {
                     first_name: true,
                     last_name: true,
                     avatar: true,
+                    last_seen_at: true,
                 },
             },
         },

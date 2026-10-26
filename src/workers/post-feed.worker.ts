@@ -5,13 +5,21 @@ import { redisConnectionOptions } from "../configs/redis";
 import {
     POST_FEED_JOB_NAME,
     POST_FEED_QUEUE_NAME,
+    POST_REACTION_JOB_NAME,
+    type PostFeedQueueJobData,
+    type PostFeedQueueJobName,
 } from "../queues/post-feed.queue";
 import { getPostFeedRecipientIds } from "../services/post/post-feed-audience";
-import type { PostFeedJobData } from "../services/post/post-feed.types";
+import type {
+    PostFeedJobData,
+    PostReactionJobData,
+} from "../services/post/post-feed.types";
+import { buildPostReactionStates } from "../services/post/post-reaction-summary";
 import { extractAcceptedFriendIds } from "../services/post/post-visibility";
-import { emitFeedChanged } from "../socket/feed.events";
-
-type PostFeedJobName = typeof POST_FEED_JOB_NAME;
+import {
+    emitFeedChanged,
+    emitPostReactionUpdated,
+} from "../socket/feed.events";
 
 const parsePositiveId = (
     value: string,
@@ -26,69 +34,139 @@ const parsePositiveId = (
     return BigInt(value);
 };
 
+const getAcceptedFriendIds = async (
+    ownerId: bigint
+): Promise<string[]> => {
+    const relationships =
+        await prisma.friendships.findMany({
+            where: {
+                status: "accepted",
+                deleted_at: null,
+                OR: [
+                    {
+                        requester_id: ownerId,
+                    },
+                    {
+                        addressee_id: ownerId,
+                    },
+                ],
+            },
+            select: {
+                requester_id: true,
+                addressee_id: true,
+                status: true,
+                deleted_at: true,
+            },
+        });
+
+    return extractAcceptedFriendIds(
+        ownerId,
+        relationships
+    ).map((friendId) => friendId.toString());
+};
+
 export const startPostFeedWorker = () => {
     const worker = new Worker<
-        PostFeedJobData,
+        PostFeedQueueJobData,
         void,
-        PostFeedJobName
+        PostFeedQueueJobName
     >(
         POST_FEED_QUEUE_NAME,
         async (
             job: Job<
-                PostFeedJobData,
+                PostFeedQueueJobData,
                 void,
-                PostFeedJobName
+                PostFeedQueueJobName
             >
-        ) => {
-            const ownerId = parsePositiveId(
-                job.data.ownerId,
-                "ownerId"
-            );
-            parsePositiveId(job.data.postId, "postId");
+        ) => {/* Tạo một Worker kết nối vào Redis, trực chờ ở hàng đợi tên là "post-feed" */
+            if (job.name === POST_REACTION_JOB_NAME) {
+                const reactionData = job.data as PostReactionJobData;
+                const ownerId = parsePositiveId(
+                    reactionData.ownerId,
+                    "ownerId"
+                );
+                const postId = parsePositiveId(
+                    reactionData.postId,
+                    "postId"
+                );
 
-            const relationships =
-                await prisma.friendships.findMany({
-                    where: {
-                        status: "accepted",
-                        deleted_at: null,
-                        OR: [
-                            {
-                                requester_id: ownerId,
+                const [friendIds, groupedReactions] = /* Lấy danh sách bạn bè và đếm tổng cảm xúc từ Database */
+                    await Promise.all([
+                        reactionData.privacy === "private"
+                            ? Promise.resolve([])
+                            : getAcceptedFriendIds(ownerId),
+                        prisma.reactions.groupBy({
+                            by: [
+                                "target_id",
+                                "reaction_type",
+                            ],
+                            where: {
+                                target_type: "post",
+                                target_id: postId,
                             },
-                            {
-                                addressee_id: ownerId,
+                            _count: {
+                                _all: true,
                             },
-                        ],
-                    },
-                    select: {
-                        requester_id: true,
-                        addressee_id: true,
-                        status: true,
-                        deleted_at: true,
-                    },
+                        }),
+                    ]);
+
+                const recipientIds = /* Lọc ra danh sách những người được phép nhận Socket */
+                    getPostFeedRecipientIds({
+                        ownerId: reactionData.ownerId,
+                        friendIds,
+                        action: "updated",
+                        privacy: reactionData.privacy,
+                    });
+
+                const reactionState = /* Gom kết quả đếm cảm xúc thành cấu trúc chuẩn */
+                    buildPostReactionStates(
+                        [postId],
+                        groupedReactions,
+                        []
+                    ).get(reactionData.postId);
+
+                emitPostReactionUpdated({ /* Phát tín hiệu Socket tới tất cả người xem và kết thúc Job */
+                    postId: reactionData.postId,
+                    reactionCount:
+                        reactionState?.reactionCount ?? 0,
+                    reactionSummary:
+                        reactionState?.reactionSummary ?? [],
+                    recipientIds,
                 });
 
-            const friendIds = extractAcceptedFriendIds(
-                ownerId,
-                relationships
-            ).map((friendId) => friendId.toString());
-            const recipientIds = getPostFeedRecipientIds({
-                ownerId: job.data.ownerId,
-                friendIds,
-                action: job.data.action,
-                privacy: job.data.privacy,
-            });
+                return;
+            }
 
-            emitFeedChanged({
-                recipientIds,
-                payload: {
-                    eventId: job.data.eventId,
-                    action: job.data.action,
-                    postId: job.data.postId,
-                    ownerId: job.data.ownerId,
-                    occurredAt: new Date().toISOString(),
-                },
-            });
+            if (job.name === POST_FEED_JOB_NAME) {
+                const feedData = job.data as PostFeedJobData;
+                const ownerId = parsePositiveId(
+                    feedData.ownerId,
+                    "ownerId"
+                );
+                parsePositiveId(feedData.postId, "postId");
+
+                const friendIds =
+                    await getAcceptedFriendIds(ownerId);
+                const recipientIds =
+                    getPostFeedRecipientIds({
+                        ownerId: feedData.ownerId,
+                        friendIds,
+                        action: feedData.action,
+                        privacy: feedData.privacy,
+                    });
+
+                emitFeedChanged({
+                    recipientIds,
+                    payload: {
+                        eventId: feedData.eventId,
+                        action: feedData.action,
+                        postId: feedData.postId,
+                        ownerId: feedData.ownerId,
+                        occurredAt:
+                            new Date().toISOString(),
+                    },
+                });
+            }
         },
         {
             connection: {

@@ -7,7 +7,10 @@ import {
     parsePostPrivacy,
     parsePostUpdateInput,
 } from "../services/post/post-query";
-import { schedulePostFeedChange } from "../queues/post-feed.queue";
+import {
+    schedulePostFeedChange,
+    schedulePostReactionChange,
+} from "../queues/post-feed.queue";
 import type { PostFeedAction } from "../services/post/post-feed.types";
 import type { PostPrivacy } from "../services/post/post-visibility";
 
@@ -45,6 +48,26 @@ const queuePostFeedChangeSafely = async (
     } catch (error) {
         console.error("QUEUE POST FEED CHANGE ERROR:", {
             action: input.action,
+            postId: input.postId.toString(),
+            ownerId: input.ownerId.toString(),
+            error,
+        });
+    }
+};
+
+type QueuePostReactionChangeInput = {
+    postId: bigint;
+    ownerId: bigint;
+    privacy: PostPrivacy;
+};
+
+const queuePostReactionChangeSafely = async (
+    input: QueuePostReactionChangeInput
+) => {
+    try {
+        await schedulePostReactionChange(input);
+    } catch (error) {
+        console.error("QUEUE POST REACTION CHANGE ERROR:", {
             postId: input.postId.toString(),
             ownerId: input.ownerId.toString(),
             error,
@@ -320,9 +343,19 @@ export const setPostReaction = async (
             });
         }
 
+        await queuePostReactionChangeSafely({
+            postId: result.postId,
+            ownerId: result.ownerId,
+            privacy: result.privacy,
+        });
+
         return res.status(200).json({
             success: true,
-            data: result,
+            data: {
+                currentReaction: result.currentReaction,
+                reactionCount: result.reactionCount,
+                reactionSummary: result.reactionSummary,
+            },
         });
     } catch (error) {
         console.error("SET POST REACTION ERROR:", error);

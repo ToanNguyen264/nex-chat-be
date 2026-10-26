@@ -338,58 +338,110 @@ export const setPostReaction = async (
         return null;
     }
 
-    return prisma.$transaction(async (transaction) => {
-        const existingReaction = await transaction.reactions.findFirst({
-            where: {
-                user_id: userId,
-                target_type: "post",
-                target_id: postId,
-            },
-        });
-
-        let currentReaction: reactions_reaction_type | null;
-
-        if (existingReaction?.reaction_type === reactionType) {
-            await transaction.reactions.delete({
-                where: {
-                    id: existingReaction.id,
-                },
-            });
-            currentReaction = null;
-        } else if (existingReaction) {
-            await transaction.reactions.update({
-                where: {
-                    id: existingReaction.id,
-                },
-                data: {
-                    reaction_type: reactionType,
-                },
-            });
-            currentReaction = reactionType;
-        } else {
-            await transaction.reactions.create({
-                data: {
-                    user_id: userId,
-                    target_type: "post",
-                    target_id: postId,
-                    reaction_type: reactionType,
-                },
-            });
-            currentReaction = reactionType;
-        }
-
-        const reactionCount = await transaction.reactions.count({
-            where: {
-                target_type: "post",
-                target_id: postId,
-            },
-        });
-
-        return {
-            currentReaction,
-            reactionCount,
-        };
+    const post = await prisma.posts.findFirst({
+        where: {
+            id: postId,
+            deleted_at: null,
+        },
+        select: {
+            id: true,
+            user_id: true,
+            privacy: true,
+        },
     });
+
+    if (!post) {
+        return null;
+    }
+
+    const reactionState = await prisma.$transaction(
+        async (transaction) => {
+            const existingReaction =
+                await transaction.reactions.findFirst({
+                    where: {
+                        user_id: userId,
+                        target_type: "post",
+                        target_id: postId,
+                    },
+                });
+
+            let currentReaction: reactions_reaction_type | null;
+
+            if (
+                existingReaction?.reaction_type ===
+                reactionType
+            ) {
+                await transaction.reactions.delete({
+                    where: {
+                        id: existingReaction.id,
+                    },
+                });
+                currentReaction = null;
+            } else if (existingReaction) {
+                await transaction.reactions.update({
+                    where: {
+                        id: existingReaction.id,
+                    },
+                    data: {
+                        reaction_type: reactionType,
+                    },
+                });
+                currentReaction = reactionType;
+            } else {
+                await transaction.reactions.create({
+                    data: {
+                        user_id: userId,
+                        target_type: "post",
+                        target_id: postId,
+                        reaction_type: reactionType,
+                    },
+                });
+                currentReaction = reactionType;
+            }
+
+            const groupedReactions =
+                await transaction.reactions.groupBy({
+                    by: ["target_id", "reaction_type"],
+                    where: {
+                        target_type: "post",
+                        target_id: postId,
+                    },
+                    _count: {
+                        _all: true,
+                    },
+                });
+
+            const viewerReactions = currentReaction
+                ? [
+                      {
+                          target_id: postId,
+                          reaction_type: currentReaction,
+                      },
+                  ]
+                : [];
+
+            const states = buildPostReactionStates(
+                [postId],
+                groupedReactions,
+                viewerReactions
+            );
+
+            return (
+                states.get(postId.toString()) ?? {
+                    currentReaction,
+                    reactionCount: 0,
+                    reactionSummary: [],
+                }
+            );
+        }
+    );
+
+    return {
+        ...reactionState,
+        postId: post.id,
+        ownerId: post.user_id,
+        privacy: post.privacy,
+    };
 };
 
 export const deletePost = async (

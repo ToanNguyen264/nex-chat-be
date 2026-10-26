@@ -13,6 +13,12 @@ export type PostFeedJobData = {
     privacy: PostPrivacy;
 };
 
+export type PostReactionJobData = {
+    postId: string;
+    ownerId: string;
+    privacy: PostPrivacy;
+};
+
 export type FeedChangedPayload = Omit< /* dùng lại các thuộc tính đã khai báo đồng thời bổ sung 1 thuộc tính nữa */
     PostFeedJobData,
     "privacy"
