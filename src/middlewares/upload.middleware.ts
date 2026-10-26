@@ -39,6 +39,9 @@ const upload = multer({
 
 export const uploadPostMedia = upload.array("media", 20);
 
+export const uploadStoryMedia = upload.single("media");
+
+
 const messageMediaUpload = multer({
     storage: multer.memoryStorage(),
     limits: {

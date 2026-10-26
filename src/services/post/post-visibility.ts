@@ -43,10 +43,8 @@ export const extractAcceptedFriendIds = (
     const friendIds = new Set<bigint>();
 
     for (const relationship of relationships) {
-        if (
-            relationship.status !== "accepted" ||
-            relationship.deleted_at !== null
-        ) {
+        if ( relationship.status !== "accepted" || relationship.deleted_at !== null) 
+        {
             continue;
         }
 
