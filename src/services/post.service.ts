@@ -332,7 +332,7 @@ export const getUserPosts = async ({
 export const setPostReaction = async (
     postId: bigint,
     userId: bigint,
-    reactionType: reactions_reaction_type
+    reactionType: reactions_reaction_type | null
 ) => {
     if (!(await canViewPost(userId, postId))) {
         return null;
@@ -367,15 +367,14 @@ export const setPostReaction = async (
 
             let currentReaction: reactions_reaction_type | null;
 
-            if (
-                existingReaction?.reaction_type ===
-                reactionType
-            ) {
-                await transaction.reactions.delete({
-                    where: {
-                        id: existingReaction.id,
-                    },
-                });
+            if (reactionType === null) {
+                if (existingReaction) {
+                    await transaction.reactions.delete({
+                        where: {
+                            id: existingReaction.id,
+                        },
+                    });
+                }
                 currentReaction = null;
             } else if (existingReaction) {
                 await transaction.reactions.update({
