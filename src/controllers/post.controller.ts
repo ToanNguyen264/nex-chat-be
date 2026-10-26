@@ -323,7 +323,10 @@ export const setPostReaction = async (
             "angry",
         ] as const;
 
-        if (!allowedReactionTypes.includes(reactionType)) {
+        if (
+            reactionType !== null &&
+            !allowedReactionTypes.includes(reactionType)
+        ) {
             return res.status(400).json({
                 success: false,
                 message: "Invalid reaction type",
