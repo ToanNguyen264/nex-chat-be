@@ -4,8 +4,12 @@ import { verifyAccessToken } from "../utils/token";
 import {
     addUserSocket,
     getOnlineUserIds,
+    markLastSeenWrittenToDb,
     removeUserSocket,
+    shouldWriteLastSeenToDb,
 } from "./presence";
+import { getPendingIncomingCallForUser } from "../services/call/call.service";
+import prisma from "../configs/prisma";
 
 let io: SocketIOServer | null = null;
 
@@ -31,8 +35,7 @@ export const initializeSocket = (
         try {
             const token = socket.handshake.auth.token;
 
-            if (typeof token !== "string" || !token) 
-            {
+            if (typeof token !== "string" || !token) {
                 return next(
                     new Error("Access token is required")
                 );
@@ -88,16 +91,84 @@ export const initializeSocket = (
             socket.nsp.emit("presence:online", {
                 userId,
             });
+            if (shouldWriteLastSeenToDb(userId)) {
+                void prisma.users
+                    .update({
+                        where: { id: BigInt(userId) },
+                        data: { last_seen_at: new Date() },
+                    })
+                    .catch((error) => {
+                        console.error(
+                            "UPDATE LAST SEEN ON CONNECT ERROR:",
+                            error
+                        );
+                    });
+            }
         }
+
 
         socket.emit("presence:snapshot", {
             userIds: getOnlineUserIds(),
         });
 
+        // Nếu người dùng vừa online (hoặc F5 lại trang) trong lúc đang có cuộc gọi đổ chuông tới họ, gửi ngay sự kiện call:incoming
+        void getPendingIncomingCallForUser(BigInt(userId))
+            .then((pendingCall) => {
+                if (!pendingCall) {
+                    return;
+                }
+
+                socket.emit("call:incoming", {
+                    callId: pendingCall.call.id.toString(),
+                    conversationId:
+                        pendingCall.call.conversation_id.toString(),
+                    callerId:
+                        pendingCall.call.caller_id.toString(),
+                    callType: pendingCall.call.call_type,
+                    status: pendingCall.call.status,
+                    createdAt:
+                        pendingCall.call.created_at.toISOString(),
+                    caller: {
+                        ...pendingCall.caller,
+                        id: pendingCall.caller.id.toString(),
+                    },
+                });
+            })
+            .catch((error) => {
+                console.error(
+                    "SYNC PENDING INCOMING CALL ERROR:",
+                    error
+                );
+            });
+
         socket.on("disconnect", (reason) => {
             const disconnectResult = removeUserSocket(
                 userId,
-                socket.id
+                socket.id,
+                () => {
+                    const now = new Date();
+                    markLastSeenWrittenToDb(
+                        userId,
+                        now.getTime()
+                    );
+
+                    void prisma.users
+                        .update({
+                            where: { id: BigInt(userId) },
+                            data: { last_seen_at: now },
+                        })
+                        .catch((error) => {
+                            console.error(
+                                "UPDATE LAST SEEN ON DISCONNECT ERROR:",
+                                error
+                            );
+                        });
+
+                    socket.nsp.emit("presence:offline", {
+                        userId,
+                        lastSeenAt: now.toISOString(),
+                    });
+                }
             );
 
             console.log(
@@ -107,12 +178,6 @@ export const initializeSocket = (
             console.log(
                 `User ${userId} has ${disconnectResult.connectionCount} active socket(s)`
             );
-
-            if (disconnectResult.becameOffline) {
-                socket.nsp.emit("presence:offline", {
-                    userId,
-                });
-            }
         });
     });
 

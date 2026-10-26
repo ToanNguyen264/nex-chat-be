@@ -237,6 +237,7 @@ model users {
   created_at                                  DateTime                    @default(now()) @db.DateTime(0)
   updated_at                                  DateTime                    @default(now()) @db.DateTime(0)
   phone_number                                String                      @unique(map: "uq_users_phone_number") @db.VarChar(100)
+  last_seen_at                                DateTime?                   @db.DateTime(0)
   calls_calls_caller_idTousers                calls[]                     @relation("calls_caller_idTousers")
   calls_calls_callee_idTousers                calls[]                     @relation("calls_callee_idTousers")
   comments                                    comments[]

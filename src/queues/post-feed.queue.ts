@@ -5,18 +5,26 @@ import { redisConnectionOptions } from "../configs/redis";
 import type {
     PostFeedAction,
     PostFeedJobData,
+    PostReactionJobData,
 } from "../services/post/post-feed.types";
 import type { PostPrivacy } from "../services/post/post-visibility";
 
 export const POST_FEED_QUEUE_NAME = "post-feed";
 export const POST_FEED_JOB_NAME = "broadcast-post-feed-change";
+export const POST_REACTION_JOB_NAME = "broadcast-post-reaction-change";
 
-type PostFeedJobName = typeof POST_FEED_JOB_NAME;
+export type PostFeedQueueJobName =
+    | typeof POST_FEED_JOB_NAME
+    | typeof POST_REACTION_JOB_NAME;
+
+export type PostFeedQueueJobData =
+    | PostFeedJobData
+    | PostReactionJobData;
 
 export const postFeedQueue = new Queue<
-    PostFeedJobData,
+    PostFeedQueueJobData,
     void,
-    PostFeedJobName
+    PostFeedQueueJobName
 >(POST_FEED_QUEUE_NAME, {
     connection: {
         ...redisConnectionOptions,
@@ -68,6 +76,35 @@ export const schedulePostFeedChange = async ({
         },
         {
             jobId: `post-feed-${eventId}`,
+        }
+    );
+};
+
+type SchedulePostReactionChangeInput = {
+    postId: bigint;
+    ownerId: bigint;
+    privacy: PostPrivacy;
+};
+
+export const schedulePostReactionChange = async ({
+    postId,
+    ownerId,
+    privacy,
+}: SchedulePostReactionChangeInput) => {
+    const postIdText = postId.toString();
+
+    return postFeedQueue.add(
+        POST_REACTION_JOB_NAME,
+        {
+            postId: postIdText,
+            ownerId: ownerId.toString(),
+            privacy,
+        },
+        {
+            jobId: `post-reaction-${postIdText}`,
+            delay: 300,
+            removeOnComplete: true,
+            removeOnFail: true,
         }
     );
 };

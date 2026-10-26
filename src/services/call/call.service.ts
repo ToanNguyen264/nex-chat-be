@@ -500,3 +500,39 @@ export const endCall = async (input: EndCallInput) => {
         systemMessage,
     } as const;
 };
+
+/* Lấy cuộc gọi đang đổ chuông (ringing) chờ người nhận bắt máy khi người nhận vừa online */
+export const getPendingIncomingCallForUser = async (
+    userId: bigint
+) => {
+    const ringingCall = await prisma.calls.findFirst({
+        where: {
+            callee_id: userId,
+            status: "ringing",
+            ended_at: null,
+        },
+        orderBy: {
+            created_at: "desc",
+        },
+        include: {
+            users_calls_caller_idTousers: {
+                select: {
+                    id: true,
+                    user_name: true,
+                    first_name: true,
+                    last_name: true,
+                    avatar: true,
+                },
+            },
+        },
+    });
+
+    if (!ringingCall) {
+        return null;
+    }
+
+    return {
+        call: ringingCall,
+        caller: ringingCall.users_calls_caller_idTousers,
+    };
+};
