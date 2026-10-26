@@ -12,6 +12,7 @@ import {
 
 import { markRingingCallAsMissed } from "../services/call/call-timeout.service";
 import { emitCallEnded } from "../socket/call.events";
+import { emitNewMessage } from "../socket/message.events";
 
 type CallTimeoutJobName =
     typeof CALL_TIMEOUT_JOB_NAME;
@@ -73,6 +74,7 @@ export const startCallTimeoutWorker = () => {
             emitCallEnded({
                 call: result.call,
             });
+            emitNewMessage(result.systemMessage);
 
             console.log(
                 "CALL MARKED AS MISSED:",

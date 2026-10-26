@@ -8,6 +8,7 @@ import {
     emitCallResponded,
     emitIncomingCall,
 } from "../../socket/call.events";
+import { emitNewMessage } from "../../socket/message.events";
 
 const isCallType = (
     value: unknown
@@ -335,6 +336,10 @@ export const respondToIncomingCall = async (
             action: result.action,
         });
 
+        if (result.systemMessage) {
+            emitNewMessage(result.systemMessage);
+        }
+
         return res.status(200).json({
             success: true,
             message:
@@ -418,6 +423,7 @@ export const endCall = async (
 
         const call = result.call;
         emitCallEnded({ call });
+        emitNewMessage(result.systemMessage);
 
         return res.status(200).json({
             success: true,
