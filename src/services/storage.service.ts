@@ -180,3 +180,46 @@ export const deleteMediaByPublicUrl = async (
         })
     );
 };
+
+
+/* story */
+export const uploadStoryMedia = async (
+    file: UploadFileInput
+): Promise<UploadedMedia> => {
+    const extension = extname(file.originalname).toLowerCase();
+    const dateFolder = new Date().toISOString().slice(0, 10);
+    const objectKey = `stories/${dateFolder}/${randomUUID()}${extension}`;
+
+    await s3.send(
+        new PutObjectCommand({
+            Bucket: S3_BUCKET,
+            Key: objectKey,
+            Body: file.buffer,
+            ContentType: file.mimetype,
+            ContentLength: file.size,
+        })
+    );
+
+    return {
+        objectKey,
+        fileName: file.originalname,
+        fileType: file.mimetype,
+        fileSize: file.size,
+    };
+};
+
+export const deleteStoryMedia = async (
+    objectKey: string
+): Promise<void> => {
+    if (!objectKey.startsWith("stories/")) {
+        return;
+    }
+
+    await s3.send(
+        new DeleteObjectCommand({
+            Bucket: S3_BUCKET,
+            Key: objectKey,
+        })
+    );
+};
+
