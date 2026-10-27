@@ -2,6 +2,7 @@ import type { Response } from "express";
 import type { AuthRequest } from "../middlewares/auth.middleware";
 import * as postService from "../services/post.service";
 import * as storageService from "../services/storage.service";
+import * as tagService from "../services/tag.service";
 import {
     parsePostListQuery,
     parsePostPrivacy,
@@ -126,6 +127,11 @@ export const createPost = async (
             media
         );
 
+        const extractedTags = content ? tagService.extractHashtags(content) : [];
+        if (extractedTags.length > 0) {
+            await tagService.attachTagsToPost(post.id, userId, extractedTags);
+        }
+
         await queuePostFeedChangeSafely({
             action: "created",
             postId: post.id,
@@ -140,7 +146,7 @@ export const createPost = async (
                 ...post,
                 id: post.id.toString(),
                 user_id: post.user_id.toString(),
-
+                tags: extractedTags,
                 attachments: post.attachments.map(
                     (attachment) => ({
                         ...attachment,
@@ -478,6 +484,13 @@ export const updatePost = async (
                 success: false,
                 message: "Post content is required",
             });
+        }
+
+        if (input.content) {
+            const extractedTags = tagService.extractHashtags(input.content);
+            if (extractedTags.length > 0) {
+                await tagService.attachTagsToPost(result.post.id, userId, extractedTags);
+            }
         }
 
         await queuePostFeedChangeSafely({

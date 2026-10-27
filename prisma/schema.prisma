@@ -165,6 +165,7 @@ model posts {
   updated_at DateTime      @default(now()) @db.DateTime(0)
   deleted_at DateTime?     @db.DateTime(0)
   comments   comments[]
+  post_tags  post_tags[]
   users      users         @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "fk_posts_user")
 
   @@index([created_at], map: "idx_posts_created_at")
@@ -256,6 +257,7 @@ model users {
   refresh_tokens                              refresh_tokens[]
   stories                                     stories[]
   two_factor_recovery_codes                   two_factor_recovery_codes[]
+  user_interests                              user_interests[]
   user_two_factor_auth                        user_two_factor_auth?
 }
 
@@ -292,6 +294,48 @@ model stories {
   users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "stories_users_FK")
 
   @@index([user_id], map: "stories_user_id_IDX")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model post_tags {
+  id         BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  post_id    BigInt               @db.UnsignedBigInt
+  tag_id     BigInt               @db.UnsignedBigInt
+  created_at DateTime             @default(now()) @db.DateTime(0)
+  is_deleted post_tags_is_deleted @default(No)
+  posts      posts                @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "post_tags_posts_FK")
+  tags       tags                 @relation(fields: [tag_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "post_tags_tags_FK")
+
+  @@unique([tag_id, post_id], map: "post_tags_tag_id_IDX")
+  @@unique([post_id, tag_id], map: "post_tags_unique")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model tags {
+  id             BigInt           @id @default(autoincrement()) @db.UnsignedBigInt
+  name           String           @unique(map: "tags_unique") @db.VarChar(100)
+  post_count     Int              @default(0) @db.UnsignedInt
+  created_at     DateTime         @default(now()) @db.DateTime(0)
+  updated_at     DateTime         @default(now()) @db.DateTime(0)
+  is_deleted     tags_is_deleted  @default(No)
+  post_tags      post_tags[]
+  user_interests user_interests[]
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model user_interests {
+  id         BigInt                    @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id    BigInt                    @db.UnsignedBigInt
+  tag_id     BigInt                    @db.UnsignedBigInt
+  score      Int                       @default(1)
+  updated_at DateTime                  @default(now()) @db.DateTime(0)
+  is_deleted user_interests_is_deleted @default(No)
+  tags       tags                      @relation(fields: [tag_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "user_interests_tags_FK")
+  users      users                     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "user_interests_users_FK")
+
+  @@unique([user_id, tag_id], map: "user_interests_unique")
+  @@index([tag_id], map: "user_interests_tags_FK")
+  @@index([user_id, score], map: "user_interests_user_id_IDX")
 }
 
 enum conversations_type {
@@ -377,4 +421,19 @@ enum calls_status {
   cancelled
   missed
   ended
+}
+
+enum post_tags_is_deleted {
+  No
+  Yes
+}
+
+enum tags_is_deleted {
+  No
+  Yes
+}
+
+enum user_interests_is_deleted {
+  No
+  Yes
 }
