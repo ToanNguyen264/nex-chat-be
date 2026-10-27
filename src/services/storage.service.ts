@@ -101,6 +101,10 @@ export const deleteMessageMedia = async (
 };
 
 export const getPublicMediaUrl = (objectKey: string): string => {
+    if (objectKey.startsWith("http://") || objectKey.startsWith("https://")) {
+        return objectKey;
+    }
+
     const publicUrl = process.env.S3_PUBLIC_URL;
 
     if (!publicUrl) {

@@ -40,14 +40,14 @@ export const createPost = async (
         const attachments = await Promise.all(
             media.map((file) =>
                 transaction.attachments.create({
-                data: {
-                    owner_type: "post",
-                    owner_id: post.id,
-                    file_url: file.objectKey,
-                    file_type: file.fileType,
-                    file_name: file.fileName,
-                    file_size: BigInt(file.fileSize),
-                },
+                    data: {
+                        owner_type: "post",
+                        owner_id: post.id,
+                        file_url: file.objectKey,
+                        file_type: file.fileType,
+                        file_name: file.fileName,
+                        file_size: BigInt(file.fileSize),
+                    },
                 })
             )
         );
@@ -83,11 +83,11 @@ const getPaginatedPosts = async (
         take: limit + 1,
         ...(cursor !== null
             ? {
-                  cursor: {
-                      id: cursor,
-                  },
-                  skip: 1,
-              }
+                cursor: {
+                    id: cursor,
+                },
+                skip: 1,
+            }
             : {}),
         include: {
             users: {
@@ -96,6 +96,19 @@ const getPaginatedPosts = async (
                     last_name: true,
                     user_name: true,
                     avatar: true,
+                },
+            },
+            // Lấy kèm tags còn hiệu lực của bài viết
+            post_tags: {
+                where: {
+                    is_deleted: "No",
+                },
+                include: {
+                    tags: {
+                        select: {
+                            name: true,
+                        },
+                    },
                 },
             },
             _count: {
@@ -165,13 +178,27 @@ const getPaginatedPosts = async (
     );
 
     const hydratedPosts = pagePosts.map((post) => {
-        const { _count, ...postData } = post;
+        const { _count, post_tags, ...postData } = post;
         const reactionState = reactionStates.get(
             post.id.toString()
         );
+        //Tạo một mảng rỗng để chứa tên các tag
+        const tagNames: string[] = [];
+        //Kiểm tra nếu bài viết có post_tags thì duyệt qua từng cái
+        if (post_tags) {
+            for (const pt of post_tags) {
+                // Nếu có object tags và có thuộc tính name thì thêm vào mảng
+                if (pt.tags && pt.tags.name) {
+                    tagNames.push(pt.tags.name);
+                }
+            }
+        }
+
 
         return {
             ...postData,
+            // Chuyển mảng quan hệ thành danh sách tên tag thuần túy
+            tags: tagNames,
             attachments: attachments.filter(
                 (attachment) => attachment.owner_id === post.id
             ),
@@ -240,6 +267,36 @@ export const getHomePosts = async ({
             },
         });
     }
+    //Khám phá bài viết mới (Feed Recommendation) dựa trên hashtag yêu thích
+    const userInterests = await prisma.user_interests.findMany({
+        where: {
+            user_id: viewerId,
+            is_deleted: "No",
+        },
+        orderBy: {
+            score: "desc",
+        },
+        take: 10,
+        select: {
+            tag_id: true,
+        },
+    });
+    if (userInterests.length > 0) {
+        const interestedTagIds = userInterests.map((item) => item.tag_id);
+        visibilityRules.push({
+            privacy: "public",
+            user_id: {
+                not: viewerId,
+                notIn: friendIds,
+            },
+            post_tags: {
+                some: {
+                    tag_id: { in: interestedTagIds },
+                    is_deleted: "No",
+                },
+            },
+        });
+    }
 
     return getPaginatedPosts(
         {
@@ -283,23 +340,23 @@ export const getUserPosts = async ({
         viewerId === ownerId
             ? null
             : await prisma.friendships.findFirst({
-                  where: {
-                      deleted_at: null,
-                      OR: [
-                          {
-                              requester_id: viewerId,
-                              addressee_id: ownerId,
-                          },
-                          {
-                              requester_id: ownerId,
-                              addressee_id: viewerId,
-                          },
-                      ],
-                  },
-                  select: {
-                      status: true,
-                  },
-              });
+                where: {
+                    deleted_at: null,
+                    OR: [
+                        {
+                            requester_id: viewerId,
+                            addressee_id: ownerId,
+                        },
+                        {
+                            requester_id: ownerId,
+                            addressee_id: viewerId,
+                        },
+                    ],
+                },
+                select: {
+                    status: true,
+                },
+            });
 
     const allowedPrivacy = getProfileVisibility(
         viewerId,
@@ -412,11 +469,11 @@ export const setPostReaction = async (
 
             const viewerReactions = currentReaction
                 ? [
-                      {
-                          target_id: postId,
-                          reaction_type: currentReaction,
-                      },
-                  ]
+                    {
+                        target_id: postId,
+                        reaction_type: currentReaction,
+                    },
+                ]
                 : [];
 
             const states = buildPostReactionStates(
