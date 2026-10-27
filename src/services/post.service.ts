@@ -267,7 +267,7 @@ export const getHomePosts = async ({
             },
         });
     }
-    //Khám phá bài viết mới (Feed Recommendation) dựa trên hashtag yêu thích
+    // Khám phá bài viết mới (Feed Recommendation) dựa trên hashtag yêu thích
     const userInterests = await prisma.user_interests.findMany({
         where: {
             user_id: viewerId,
@@ -281,21 +281,41 @@ export const getHomePosts = async ({
             tag_id: true,
         },
     });
+
     if (userInterests.length > 0) {
         const interestedTagIds = userInterests.map((item) => item.tag_id);
-        visibilityRules.push({
-            privacy: "public",
-            user_id: {
-                not: viewerId,
-                notIn: friendIds,
+
+        // 👉 TỐI ƯU ID-FIRST: Lấy thẳng danh sách ID bài viết từ bảng post_tags qua index siêu tốc
+        const recommendedPostTags = await prisma.post_tags.findMany({
+            where: {
+                tag_id: { in: interestedTagIds },
+                is_deleted: "No",
             },
-            post_tags: {
-                some: {
-                    tag_id: { in: interestedTagIds },
-                    is_deleted: "No",
-                },
+            orderBy: {
+                post_id: "desc",
+            },
+            take: 50,
+            select: {
+                post_id: true,
             },
         });
+
+        if (recommendedPostTags.length > 0) {
+            const recommendedPostIds = Array.from(
+                new Set(recommendedPostTags.map((item) => item.post_id))
+            );
+
+            visibilityRules.push({
+                id: {
+                    in: recommendedPostIds,
+                },
+                privacy: "public",
+                user_id: {
+                    not: viewerId,
+                    notIn: friendIds,
+                },
+            });
+        }
     }
 
     return getPaginatedPosts(
