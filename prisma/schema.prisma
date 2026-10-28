@@ -36,6 +36,7 @@ model comments {
   @@index([parent_comment_id], map: "fk_comments_parent")
   @@index([post_id], map: "idx_comments_post")
   @@index([user_id], map: "idx_comments_user")
+  @@index([post_id, deleted_at], map: "idx_comments_post_deleted")
 }
 
 model conversation_members {
@@ -170,6 +171,9 @@ model posts {
 
   @@index([created_at], map: "idx_posts_created_at")
   @@index([user_id], map: "idx_posts_user")
+  @@index([deleted_at, id(sort: Desc)], map: "idx_posts_deleted_id")
+  @@index([user_id, id(sort: Desc)], map: "idx_posts_user_id")
+  @@index([user_id, privacy, deleted_at, id(sort: Desc)], map: "idx_posts_user_privacy_id")
 }
 
 model profiles {
@@ -308,6 +312,7 @@ model post_tags {
 
   @@unique([tag_id, post_id], map: "post_tags_tag_id_IDX")
   @@unique([post_id, tag_id], map: "post_tags_unique")
+  @@index([tag_id, is_deleted, post_id(sort: Desc)], map: "idx_post_tags_tag_del_post")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
