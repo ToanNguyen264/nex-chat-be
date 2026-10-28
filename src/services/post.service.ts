@@ -75,8 +75,12 @@ const getPaginatedPosts = async (
     cursor: bigint | null,
     limit: number
 ) => {
-    const posts = await prisma.posts.findMany({
+    // 1. Pha 1: Lấy danh sách ID bài viết trước qua Index (Rất nhanh, không load cột TEXT hay relation)
+    const postRows = await prisma.posts.findMany({
         where,
+        select: {
+            id: true,
+        },
         orderBy: {
             id: "desc",
         },
@@ -89,87 +93,113 @@ const getPaginatedPosts = async (
                 skip: 1,
             }
             : {}),
-        include: {
-            users: {
-                select: {
-                    first_name: true,
-                    last_name: true,
-                    user_name: true,
-                    avatar: true,
-                },
-            },
-            // Lấy kèm tags còn hiệu lực của bài viết
-            post_tags: {
-                where: {
-                    is_deleted: "No",
-                },
-                include: {
-                    tags: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-            _count: {
-                select: {
-                    comments: {
-                        where: {
-                            deleted_at: null,
-                        },
-                    },
-                },
-            },
-        },
     });
 
-    const hasNextPage = posts.length > limit;
-    const pagePosts = hasNextPage
-        ? posts.slice(0, limit)
-        : posts;
-    const postIds = pagePosts.map((post) => post.id);
+    const hasNextPage = postRows.length > limit;
+    const pageRows = hasNextPage
+        ? postRows.slice(0, limit)
+        : postRows;
+    const postIds = pageRows.map((post) => post.id);
 
-    const attachments = postIds.length > 0
-        ? await prisma.attachments.findMany({
-            where: {
-                owner_type: "post",
-                owner_id: {
-                    in: postIds,
-                },
-            },
-        })
-        : [];
+    if (postIds.length === 0) {
+        return {
+            posts: [],
+            nextCursor: null,
+            hasNextPage: false,
+        };
+    }
 
-    const groupedReactions = postIds.length > 0
-        ? await prisma.reactions.groupBy({
-            by: ["target_id", "reaction_type"],
-            where: {
-                target_type: "post",
-                target_id: {
-                    in: postIds,
+    // 2. Pha 2: Chạy chi tiết bài viết, attachments và reactions SONG SONG (Promise.all)
+    const [detailedPosts, attachments, groupedReactions, viewerReactions] =
+        await Promise.all([
+            prisma.posts.findMany({
+                where: {
+                    id: {
+                        in: postIds,
+                    },
                 },
-            },
-            _count: {
-                _all: true,
-            },
-        })
-        : [];
+                orderBy: {
+                    id: "desc", // Đảm bảo đúng thứ tự mới đến cũ
+                },
+                include: {
+                    users: {
+                        select: {
+                            first_name: true,
+                            last_name: true,
+                            user_name: true,
+                            avatar: true,
+                            status: true,
+                            deleted: true,
+                        },
+                    },
+                    post_tags: {
+                        where: {
+                            is_deleted: "No",
+                        },
+                        include: {
+                            tags: {
+                                select: {
+                                    name: true,
+                                },
+                            },
+                        },
+                    },
+                    _count: {
+                        select: {
+                            comments: {
+                                where: {
+                                    deleted_at: null,
+                                },
+                            },
+                        },
+                    },
+                },
+            }),
+            prisma.attachments.findMany({
+                where: {
+                    owner_type: "post",
+                    owner_id: {
+                        in: postIds,
+                    },
+                },
+            }),
+            prisma.reactions.groupBy({
+                by: ["target_id", "reaction_type"],
+                where: {
+                    target_type: "post",
+                    target_id: {
+                        in: postIds,
+                    },
+                },
+                _count: {
+                    _all: true,
+                },
+            }),
+            prisma.reactions.findMany({
+                where: {
+                    user_id: viewerId,
+                    target_type: "post",
+                    target_id: {
+                        in: postIds,
+                    },
+                },
+                select: {
+                    target_id: true,
+                    reaction_type: true,
+                },
+            }),
+        ]);
 
-    const viewerReactions = postIds.length > 0
-        ? await prisma.reactions.findMany({
-            where: {
-                user_id: viewerId,
-                target_type: "post",
-                target_id: {
-                    in: postIds,
-                },
-            },
-            select: {
-                target_id: true,
-                reaction_type: true,
-            },
-        })
-        : [];
+    // 3. Lọc bài viết bằng vòng lặp thông thường (loại bỏ tài khoản bị khóa / đã xóa)
+    const pagePosts: typeof detailedPosts = [];
+    for (const post of detailedPosts) {
+        const isUserActive =
+            post.users?.status === "active" && post.users?.deleted === "NO";
+
+        if (isUserActive) {
+            pagePosts.push(post);
+        }
+    }
 
     const reactionStates = buildPostReactionStates(
         postIds,
@@ -226,26 +256,42 @@ export const getHomePosts = async ({
     cursor,
     limit,
 }: GetPostsInput) => {
-    const relationships = await prisma.friendships.findMany({
-        where: {
-            status: "accepted",
-            deleted_at: null,
-            OR: [
-                {
-                    requester_id: viewerId,
-                },
-                {
-                    addressee_id: viewerId,
-                },
-            ],
-        },
-        select: {
-            requester_id: true,
-            addressee_id: true,
-            status: true,
-            deleted_at: true,
-        },
-    });
+    // 1. Chạy lấy quan hệ bạn bè và sở thích hashtag SONG SONG (Promise.all)
+    const [relationships, userInterests] = await Promise.all([
+        prisma.friendships.findMany({
+            where: {
+                status: "accepted",
+                deleted_at: null,
+                OR: [
+                    {
+                        requester_id: viewerId,
+                    },
+                    {
+                        addressee_id: viewerId,
+                    },
+                ],
+            },
+            select: {
+                requester_id: true,
+                addressee_id: true,
+                status: true,
+                deleted_at: true,
+            },
+        }),
+        prisma.user_interests.findMany({
+            where: {
+                user_id: viewerId,
+                is_deleted: "No",
+            },
+            orderBy: {
+                score: "desc",
+            },
+            take: 10,
+            select: {
+                tag_id: true,
+            },
+        }),
+    ]);
 
     const friendIds = extractAcceptedFriendIds(
         viewerId,
@@ -267,25 +313,11 @@ export const getHomePosts = async ({
             },
         });
     }
-    // Khám phá bài viết mới (Feed Recommendation) dựa trên hashtag yêu thích
-    const userInterests = await prisma.user_interests.findMany({
-        where: {
-            user_id: viewerId,
-            is_deleted: "No",
-        },
-        orderBy: {
-            score: "desc",
-        },
-        take: 10,
-        select: {
-            tag_id: true,
-        },
-    });
 
     if (userInterests.length > 0) {
         const interestedTagIds = userInterests.map((item) => item.tag_id);
 
-        // 👉 TỐI ƯU ID-FIRST: Lấy thẳng danh sách ID bài viết từ bảng post_tags qua index siêu tốc
+        //TỐI ƯU ID-FIRST: Lấy thẳng danh sách ID bài viết từ bảng post_tags qua index
         const recommendedPostTags = await prisma.post_tags.findMany({
             where: {
                 tag_id: { in: interestedTagIds },
@@ -317,15 +349,10 @@ export const getHomePosts = async ({
             });
         }
     }
-
+    // Chỉ lọc deleted_at và OR các quy tắc hiển thị
     return getPaginatedPosts(
         {
             deleted_at: null,
-            users: {
-                status: "active",
-                deleted: "NO",
-                deleted_at: null,
-            },
             OR: visibilityRules,
         },
         viewerId,
