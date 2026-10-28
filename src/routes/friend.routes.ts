@@ -6,6 +6,7 @@ import { auth } from "../middlewares/auth.middleware";
 const router = Router();
 
 router.get("/", auth, friendController.getFriends);
+router.get("/count", auth, friendController.getFriendCount);
 router.get(
     "/relationship/:otherUserId",
     auth,

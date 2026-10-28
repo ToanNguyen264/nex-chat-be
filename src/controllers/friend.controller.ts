@@ -382,6 +382,23 @@ export const getFriends = async (req: AuthRequest, res: Response) => {
     }
 };
 
+export const getFriendCount = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId;
+
+        if (!userId) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+
+        const count = await friendService.getFriendCount(userId);
+
+        return res.status(200).json({ success: true, data: { count } });
+    } catch (error) {
+        console.error("GET FRIEND COUNT ERROR:", error);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
 export const getRelationshipWithUser = async (
     req: AuthRequest,
     res: Response

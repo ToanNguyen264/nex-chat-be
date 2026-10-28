@@ -89,6 +89,9 @@ model friendships {
   @@index([requester_id], map: "idx_friendships_requester")
   @@index([blocked_by], map: "idx_friendships_blocked_by")
   @@index([deleted_at], map: "idx_friendships_deleted_at")
+  @@index([requester_id, status, deleted_at], map: "idx_friendships_req_status_del")
+  @@index([addressee_id, status, deleted_at], map: "idx_friendships_addr_status_del")
+  @@index([status, deleted_at], map: "idx_friendships_status_del")
 }
 
 model refresh_tokens {
@@ -263,6 +266,9 @@ model users {
   two_factor_recovery_codes                   two_factor_recovery_codes[]
   user_interests                              user_interests[]
   user_two_factor_auth                        user_two_factor_auth?
+
+  @@index([deleted, status, id(sort: Desc)], map: "idx_users_del_status_id")
+  @@index([deleted, status, created_at(sort: Desc)], map: "idx_users_del_status_created")
 }
 
 model calls {
