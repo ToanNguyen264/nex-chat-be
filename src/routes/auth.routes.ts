@@ -7,6 +7,7 @@ const router = Router();
 
 router.post("/register", authController.register);
 router.post("/login", authController.login);
+router.post("/google", authController.googleLogin);
 router.post("/refresh", authController.refresh);
 router.post("/2fa/setup", auth, authController.setup2FA);
 router.post("/2fa/enable", auth, authController.enable2FA);
