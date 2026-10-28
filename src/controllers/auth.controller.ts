@@ -95,6 +95,13 @@ export const login = async (req: Request, res: Response) => {
             });
         }
 
+        if (!user.password) {
+            return res.status(401).json({
+                success: false,
+                message: "Tài khoản này được đăng nhập bằng Google. Vui lòng bấm Đăng nhập với Google.",
+            });
+        }
+
         const passwordValid =
             await authService.comparePassword(
                 password,
@@ -418,4 +425,59 @@ export const logout = async (req: Request, res: Response) => {
         success: true,
         message: "Logout successfully",
     });
+};
+export const googleLogin = async (req: Request, res: Response) => {
+    try {
+        const { credential, accessToken: googleAccessToken } = req.body;
+
+        if (!credential && !googleAccessToken) {
+            return res.status(400).json({
+                success: false,
+                message: "Google token is required",
+            });
+        }
+
+        const user = await authService.loginOrRegisterWithGoogle({
+            credential,
+            accessToken: googleAccessToken,
+        });
+
+        const accessToken = createAccessToken(user.id);
+        const refreshToken = createRefreshToken(user.id);
+
+        await authService.saveRefreshToken(user.id, refreshToken);
+
+        res.cookie("refreshToken", refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+
+        return res.status(200).json({
+            success: true,
+            requires2FA: false,
+            accessToken,
+            user: {
+                id: user.id.toString(),
+                email: user.email,
+                userName: user.user_name,
+                firstName: user.first_name,
+                lastName: user.last_name,
+                avatar: user.avatar,
+            },
+        });
+    } catch (error: any) {
+        console.error("Google login error:", error);
+        if (error.message === "ACCOUNT_BLOCKED") {
+            return res.status(403).json({
+                success: false,
+                message: "Tài khoản của bạn đã bị khóa",
+            });
+        }
+        return res.status(401).json({
+            success: false,
+            message: "Xác thực Google không thành công",
+        });
+    }
 };
