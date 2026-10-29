@@ -2,6 +2,7 @@ import type { Response, Request } from "express";
 
 import type { AuthRequest } from "../middlewares/auth.middleware";
 import * as friendService from "../services/friend.service";
+import * as storageService from "../services/storage.service";
 
 
 const serializeFriendship = <T extends {
@@ -353,15 +354,22 @@ export const cancelFriendRequest = async (
 
 export const getFriends = async (req: AuthRequest, res: Response) => {
     try {
-        const userId = req.userId;
+        const viewerId = req.userId;
 
-        if (!userId) {
+        if (!viewerId) {
             return res.status(401).json({ success: false, message: "Unauthorized" });
         }
 
-        const friendships = await friendService.getFriends(userId);
+        const targetUserIdStr = req.query.userId as string | undefined;
+        let targetUserId = viewerId;
+
+        if (targetUserIdStr && /^\d+$/.test(targetUserIdStr)) {
+            targetUserId = BigInt(targetUserIdStr);
+        }
+
+        const friendships = await friendService.getFriends(targetUserId);
         const data = friendships.map((friendship) => {
-            const friend = friendship.requester_id === userId
+            const friend = friendship.requester_id === targetUserId
                 ? friendship.users_friendships_addressee_idTousers
                 : friendship.users_friendships_requester_idTousers;
 
@@ -371,6 +379,7 @@ export const getFriends = async (req: AuthRequest, res: Response) => {
                 friend: {
                     ...friend,
                     id: friend.id.toString(),
+                    avatar: friend.avatar ? storageService.getPublicMediaUrl(friend.avatar) : null,
                 },
             };
         });
@@ -384,13 +393,20 @@ export const getFriends = async (req: AuthRequest, res: Response) => {
 
 export const getFriendCount = async (req: AuthRequest, res: Response) => {
     try {
-        const userId = req.userId;
+        const viewerId = req.userId;
 
-        if (!userId) {
+        if (!viewerId) {
             return res.status(401).json({ success: false, message: "Unauthorized" });
         }
 
-        const count = await friendService.getFriendCount(userId);
+        const targetUserIdStr = req.query.userId as string | undefined;
+        let targetUserId = viewerId;
+
+        if (targetUserIdStr && /^\d+$/.test(targetUserIdStr)) {
+            targetUserId = BigInt(targetUserIdStr);
+        }
+
+        const count = await friendService.getFriendCount(targetUserId);
 
         return res.status(200).json({ success: true, data: { count } });
     } catch (error) {

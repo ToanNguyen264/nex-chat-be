@@ -1,4 +1,4 @@
-import type { Request, Response } from "express";
+﻿import type { Request, Response } from "express";
 import * as userService from "../services/user.service";
 import bcrypt from "bcrypt";
 import type { AuthRequest } from "../middlewares/auth.middleware";
@@ -62,7 +62,7 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        const result = await userService.getUserProfile(BigInt(userId));
+        const result = await userService.getUserProfile(BigInt(userId), req.userId);
 
         if (!result) {
             return res.status(404).json({
@@ -85,7 +85,7 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
                     profiles?.display_name ||
                     fullName ||
                     user.user_name ||
-                    "Người dùng",
+                    "NgÆ°á»i dÃ¹ng",
                 avatar: profiles?.avatar_url || user.avatar,
                 cover_image: profiles?.cover_image ?? null,
                 bio: profiles?.bio ?? null,
@@ -551,5 +551,46 @@ export const deleteUser = async (req: Request, res: Response) => {
             success: false,
             message: "Internal server error",
         });
+    }
+};
+
+export const getUserMedia = async (req: AuthRequest, res: Response) => {
+    try {
+        const viewerId = req.userId;
+        const userIdParam = req.params.userId;
+        const userId = typeof userIdParam === 'string' ? userIdParam : Array.isArray(userIdParam) ? userIdParam[0] : '';
+
+        if (!viewerId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+
+        if (!userId || !/^\d+$/.test(userId)) {
+            return res.status(400).json({ success: false, message: 'Invalid user ID' });
+        }
+
+        const type = req.query.type as 'image' | 'video' | undefined;
+        const limitQuery = req.query.limit as string | undefined;
+        const limit = limitQuery && /^\d+$/.test(limitQuery) ? Math.min(Number(limitQuery), 50) : 20;
+
+        const attachments = await userService.getUserMedia({
+            userId: BigInt(userId),
+            viewerId,
+            type,
+            limit,
+        });
+
+        const data = attachments.map((att) => ({
+            id: att.id.toString(),
+            post_id: att.owner_id.toString(),
+            file_url: storageService.getPublicMediaUrl(att.file_url),
+            file_type: att.file_type,
+            file_name: att.file_name,
+            created_at: att.created_at,
+        }));
+
+        return res.status(200).json({ success: true, data });
+    } catch (error) {
+        console.error('GET USER MEDIA ERROR:', error);
+        return res.status(500).json({ success: false, message: 'Internal server error' });
     }
 };

@@ -24,6 +24,7 @@ router.patch(
     userController.updateMyCoverImage
 );
 router.get("/:userId/profile", auth, userController.getUserProfile);
+router.get("/:userId/media", auth, userController.getUserMedia);
 router.get("/:id", userController.getUser);
 router.post("/", userController.createUser);
 router.patch("/:id", userController.updateUser);

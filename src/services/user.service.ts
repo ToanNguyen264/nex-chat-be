@@ -43,7 +43,7 @@ export const getUserById = async (id: bigint) => {
     });
 };
 
-export const getUserProfile = async (userId: bigint) => {
+export const getUserProfile = async (userId: bigint, viewerId?: bigint) => {
     const user = await prisma.users.findFirst({
         where: {
             id: userId,
@@ -76,6 +76,30 @@ export const getUserProfile = async (userId: bigint) => {
         return null;
     }
 
+    let allowedPrivacy: Array<"public" | "friends" | "private"> = ["public"];
+
+    if (viewerId !== undefined) {
+        if (viewerId === userId) {
+            allowedPrivacy = ["public", "friends", "private"];
+        } else {
+            const friendship = await prisma.friendships.findFirst({
+                where: {
+                    status: "accepted",
+                    deleted_at: null,
+                    OR: [
+                        { requester_id: viewerId, addressee_id: userId },
+                        { requester_id: userId, addressee_id: viewerId },
+                    ],
+                },
+                select: { id: true },
+            });
+
+            if (friendship) {
+                allowedPrivacy = ["public", "friends"];
+            }
+        }
+    }
+
     const [friendCount, postCount] = await prisma.$transaction([
         prisma.friendships.count({
             where: {
@@ -91,6 +115,7 @@ export const getUserProfile = async (userId: bigint) => {
             where: {
                 user_id: userId,
                 deleted_at: null,
+                privacy: { in: allowedPrivacy },
             },
         }),
     ]);
@@ -141,7 +166,7 @@ export const updateMyProfile = async (
         data.displayName?.trim() ||
         fullName ||
         user.user_name ||
-        "Người dùng";
+        "NgÆ°á»i dÃ¹ng";
 
     const updateData = {
         ...(data.displayName !== undefined && {
@@ -231,7 +256,7 @@ export const updateMyProfileImage = async (
     const displayName =
         [user.first_name, user.last_name].filter(Boolean).join(" ") ||
         user.user_name ||
-        "Người dùng";
+        "NgÆ°á»i dÃ¹ng";
     const previousImageUrl = imageType === "avatar"
         ? user.profiles?.avatar_url || user.avatar || null
         : user.profiles?.cover_image ?? null;
@@ -365,4 +390,74 @@ export const deleteUser = async (id: bigint) => {
             deleted_at: new Date(),
         }
     });
+};
+
+export const getUserMedia = async ({
+    userId,
+    viewerId,
+    type,
+    limit = 20,
+}: {
+    userId: bigint;
+    viewerId: bigint;
+    type?: 'image' | 'video' | undefined;
+    limit?: number | undefined;
+}) => {
+    let allowedPrivacy: Array<'public' | 'friends' | 'private'> = ['public'];
+
+    if (viewerId === userId) {
+        allowedPrivacy = ['public', 'friends', 'private'];
+    } else {
+        const friendship = await prisma.friendships.findFirst({
+            where: {
+                status: 'accepted',
+                deleted_at: null,
+                OR: [
+                    { requester_id: viewerId, addressee_id: userId },
+                    { requester_id: userId, addressee_id: viewerId },
+                ],
+            },
+            select: { id: true },
+        });
+
+        if (friendship) {
+            allowedPrivacy = ['public', 'friends'];
+        }
+    }
+
+    const posts = await prisma.posts.findMany({
+        where: {
+            user_id: userId,
+            deleted_at: null,
+            privacy: { in: allowedPrivacy },
+        },
+        select: { id: true },
+    });
+
+    if (posts.length === 0) {
+        return [];
+    }
+
+    const postIds = posts.map((p) => p.id);
+
+    const attachments = await prisma.attachments.findMany({
+        where: {
+            owner_type: 'post',
+            owner_id: { in: postIds },
+            ...(type === 'image' ? { file_type: { startsWith: 'image/' } } : {}),
+            ...(type === 'video' ? { file_type: { startsWith: 'video/' } } : {}),
+        },
+        orderBy: { id: 'desc' },
+        take: limit,
+        select: {
+            id: true,
+            owner_id: true,
+            file_url: true,
+            file_type: true,
+            file_name: true,
+            created_at: true,
+        },
+    });
+
+    return attachments;
 };
