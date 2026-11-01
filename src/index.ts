@@ -14,6 +14,7 @@ import { startCallTimeoutWorker } from "./workers/call-timeout.worker";
 import { startPostFeedWorker } from "./workers/post-feed.worker";
 import storyRouters from "./routes/story.routes";
 import tagRouters from "./routes/tag.routes";
+import followRouters from "./routes/follow.routes";
 import { initTagTrie } from "./services/tag.service";
 dotenv.config();
 
@@ -34,6 +35,7 @@ app.use("/api/conversations", conversationRouters);
 app.use("/api/calls", callRouters);
 app.use("/api/stories", storyRouters);
 app.use("/api/tags", tagRouters);
+app.use("/api/follows", followRouters);
 
 const PORT = process.env.PORT || 3000;
 

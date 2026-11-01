@@ -257,7 +257,7 @@ export const getHomePosts = async ({
     limit,
 }: GetPostsInput) => {
     // 1. Chạy lấy quan hệ bạn bè và sở thích hashtag SONG SONG (Promise.all)
-    const [relationships, userInterests] = await Promise.all([
+    const [relationships, userInterests, followings] = await Promise.all([
         prisma.friendships.findMany({
             where: {
                 status: "accepted",
@@ -291,12 +291,23 @@ export const getHomePosts = async ({
                 tag_id: true,
             },
         }),
+        prisma.follows.findMany({
+            where: {
+                follower_id: viewerId,
+                is_deleted: "No",
+            },
+            select: {
+                following_id: true,
+            },
+        }),
     ]);
 
     const friendIds = extractAcceptedFriendIds(
         viewerId,
         relationships
     );
+    const followingIds = followings.map((item) => item.following_id);
+
     const visibilityRules: Prisma.postsWhereInput[] = [
         {
             user_id: viewerId,
@@ -311,6 +322,15 @@ export const getHomePosts = async ({
             privacy: {
                 in: ["public", "friends"],
             },
+        });
+    }
+
+    if (followingIds.length > 0) {
+        visibilityRules.push({
+            user_id: {
+                in: followingIds,
+            },
+            privacy: "public",
         });
     }
 

@@ -100,7 +100,7 @@ export const getUserProfile = async (userId: bigint, viewerId?: bigint) => {
         }
     }
 
-    const [friendCount, postCount] = await prisma.$transaction([
+    const [friendCount, postCount, followerCount, followingCount] = await prisma.$transaction([
         prisma.friendships.count({
             where: {
                 status: "accepted",
@@ -118,14 +118,44 @@ export const getUserProfile = async (userId: bigint, viewerId?: bigint) => {
                 privacy: { in: allowedPrivacy },
             },
         }),
+        prisma.follows.count({
+            where: {
+                following_id: userId,
+                is_deleted: "No",
+            },
+        }),
+        prisma.follows.count({
+            where: {
+                follower_id: userId,
+                is_deleted: "No",
+            },
+        }),
     ]);
+
+    let isFollowing = false;
+    if (viewerId) {
+        const followRecord = await prisma.follows.findFirst({
+            where: {
+                follower_id: viewerId,
+                following_id: userId,
+                is_deleted: "No",
+            },
+        });
+
+        if (followRecord) {
+            isFollowing = true;
+        } else {
+            isFollowing = false;
+        }
+    }
 
     return {
         ...user,
         friend_count: friendCount,
-        follower_count: 0,
-        following_count: 0,
+        follower_count: followerCount,
+        following_count: followingCount,
         post_count: postCount,
+        is_following: isFollowing,
     };
 };
 
@@ -166,7 +196,7 @@ export const updateMyProfile = async (
         data.displayName?.trim() ||
         fullName ||
         user.user_name ||
-        "NgÆ°á»i dÃ¹ng";
+        "Người dùng";
 
     const updateData = {
         ...(data.displayName !== undefined && {
@@ -256,7 +286,7 @@ export const updateMyProfileImage = async (
     const displayName =
         [user.first_name, user.last_name].filter(Boolean).join(" ") ||
         user.user_name ||
-        "NgÆ°á»i dÃ¹ng";
+        "Người dùng";
     const previousImageUrl = imageType === "avatar"
         ? user.profiles?.avatar_url || user.avatar || null
         : user.profiles?.cover_image ?? null;
