@@ -1,5 +1,6 @@
 import prisma from "../configs/prisma";
 import * as storageService from "./storage.service";
+import { emitNewNotification } from "./notification.service";
 
 /*
  * Service xử lý logic Follow / Unfollow (Sử dụng Soft Delete: is_deleted = "Yes" | "No")
