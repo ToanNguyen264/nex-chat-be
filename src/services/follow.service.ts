@@ -68,7 +68,42 @@ export const followUser = async (followerId: bigint, followingId: bigint) => {
         },
     });
 
-    // 5. Đếm số lượng follower còn active (is_deleted: "No")
+    // 5. Tạo thông báo và phát sự kiện Socket real-time cho người được theo dõi
+    try {
+        const notif = await prisma.notifications.create({
+            data: {
+                user_id: followingId,
+                actor_id: followerId,
+                type: "follow",
+                reference_id: followerId,
+                is_read: false,
+            },
+            select: {
+                id: true,
+                user_id: true,
+                actor_id: true,
+                type: true,
+                reference_id: true,
+                is_read: true,
+                created_at: true,
+                users_notifications_actor_idTousers: {
+                    select: {
+                        id: true,
+                        user_name: true,
+                        first_name: true,
+                        last_name: true,
+                        avatar: true,
+                    },
+                },
+            },
+        });
+
+        emitNewNotification(notif);
+    } catch (error) {
+        console.error("[followUser] Lỗi khi tạo hoặc phát thông báo follow:", error);
+    }
+
+    // 6. Đếm số lượng follower còn active (is_deleted: "No")
     const [followerCount, followingCount] = await Promise.all([
         prisma.follows.count({ where: { following_id: followingId, is_deleted: "No" } }),
         prisma.follows.count({ where: { follower_id: followingId, is_deleted: "No" } }),
