@@ -52,8 +52,25 @@ ReturnType<typeof createFriendNotification> => trả về promise của hàm cre
 Awaited để gỡ promise, lấy ra kiểu dữ liệu bên trong promise và không chạy hàm createFriendNotification, tức là CreatedFriendNotification
 */
 
+export type NotificationEmitPayload = {
+    id: bigint;
+    user_id: bigint;
+    actor_id: bigint | null;
+    type: string;
+    reference_id: bigint | null;
+    is_read: boolean;
+    created_at: Date;
+    users_notifications_actor_idTousers?: {
+        id: bigint;
+        user_name: string | null;
+        first_name: string | null;
+        last_name: string | null;
+        avatar: string | null;
+    } | null;
+};
+
 export const emitNewNotification = (
-    notification: CreatedFriendNotification
+    notification: NotificationEmitPayload
 ) => {
     try {
         const io = getIO();
