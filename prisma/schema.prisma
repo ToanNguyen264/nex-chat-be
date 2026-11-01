@@ -252,6 +252,8 @@ model users {
   comments                                    comments[]
   conversation_members                        conversation_members[]
   conversations                               conversations[]
+  follows_follows_follower_idTousers          follows[]                   @relation("follows_follower_idTousers")
+  follows_follows_following_idTousers         follows[]                   @relation("follows_following_idTousers")
   friendships_friendships_addressee_idTousers friendships[]               @relation("friendships_addressee_idTousers")
   friendships_friendships_blocked_byTousers   friendships[]               @relation("friendships_blocked_byTousers")
   friendships_friendships_requester_idTousers friendships[]               @relation("friendships_requester_idTousers")
@@ -348,6 +350,20 @@ model user_interests {
   @@unique([user_id, tag_id], map: "user_interests_unique")
   @@index([tag_id], map: "user_interests_tags_FK")
   @@index([user_id, score], map: "user_interests_user_id_IDX")
+}
+
+model follows {
+  id                                BigInt              @id @default(autoincrement()) @db.UnsignedBigInt
+  follower_id                       BigInt              @db.UnsignedBigInt
+  following_id                      BigInt              @db.UnsignedBigInt
+  created_at                        DateTime            @default(now()) @db.DateTime(0)
+  is_deleted                        follows_is_deleted? @default(No)
+  users_follows_follower_idTousers  users               @relation("follows_follower_idTousers", fields: [follower_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "follows_users_FK")
+  users_follows_following_idTousers users               @relation("follows_following_idTousers", fields: [following_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "follows_users_FK_1")
+
+  @@unique([follower_id, following_id], map: "follows_unique")
+  @@index([follower_id], map: "follows_follower_id_IDX")
+  @@index([following_id], map: "follows_following_id_IDX")
 }
 
 enum conversations_type {
@@ -448,4 +464,9 @@ enum tags_is_deleted {
 enum user_interests_is_deleted {
   No
   Yes
+}
+
+enum follows_is_deleted {
+  Yes
+  No
 }

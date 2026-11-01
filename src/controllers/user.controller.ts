@@ -85,7 +85,7 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
                     profiles?.display_name ||
                     fullName ||
                     user.user_name ||
-                    "NgÆ°á»i dÃ¹ng",
+                    "Người dùng",
                 avatar: profiles?.avatar_url || user.avatar,
                 cover_image: profiles?.cover_image ?? null,
                 bio: profiles?.bio ?? null,
