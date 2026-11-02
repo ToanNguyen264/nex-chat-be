@@ -207,6 +207,59 @@ const getPaginatedPosts = async (
         viewerReactions
     );
 
+    // 4. Lấy danh sách tác giả và kiểm tra trạng thái theo dõi + bạn bè của người xem
+    const authorIds = Array.from(
+        new Set(
+            pagePosts
+                .map((post) => post.user_id)
+                .filter((userId) => userId !== viewerId)
+        )
+    );
+
+    let followingIds: bigint[] = [];
+    let friendUserIds: bigint[] = [];
+
+    if (authorIds.length > 0) {
+        const [followRows, friendshipRows] = await Promise.all([
+            prisma.follows.findMany({
+                where: {
+                    follower_id: viewerId,
+                    following_id: { in: authorIds },
+                    is_deleted: "No",
+                },
+                select: {
+                    following_id: true,
+                },
+            }),
+            prisma.friendships.findMany({
+                where: {
+                    status: "accepted",
+                    deleted_at: null,
+                    OR: [
+                        { requester_id: viewerId, addressee_id: { in: authorIds } },
+                        { addressee_id: viewerId, requester_id: { in: authorIds } },
+                    ],
+                },
+                select: {
+                    requester_id: true,
+                    addressee_id: true,
+                },
+            }),
+        ]);
+
+        followingIds = followRows.map((item) => item.following_id);
+        friendUserIds = friendshipRows.map((item) =>
+            item.requester_id === viewerId ? item.addressee_id : item.requester_id
+        );
+    }
+
+    const followingSet = new Set(
+        followingIds.map((item) => item.toString())
+    );
+    const friendSet = new Set(
+        friendUserIds.map((item) => item.toString())
+    );
+
     const hydratedPosts = pagePosts.map((post) => {
         const { _count, post_tags, ...postData } = post;
         const reactionState = reactionStates.get(
@@ -224,6 +277,9 @@ const getPaginatedPosts = async (
             }
         }
 
+        const authorIdStr = post.user_id.toString();
+        const isFollowing = followingSet.has(authorIdStr);
+        const isFriend = friendSet.has(authorIdStr);
 
         return {
             ...postData,
@@ -239,6 +295,8 @@ const getPaginatedPosts = async (
             currentReaction:
                 reactionState?.currentReaction ?? null,
             commentCount: _count.comments,
+            is_following: isFollowing,
+            is_friend: isFriend,
         };
     });
 
