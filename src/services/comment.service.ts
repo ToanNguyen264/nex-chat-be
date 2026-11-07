@@ -10,7 +10,7 @@ const commentAuthorSelect = {
 
 export const getCommentsByPostId = async (
     postId: bigint,
-    viewerId: bigint
+    viewerId: bigint | null
 ) => {
     if (!(await canViewPost(viewerId, postId))) {
         return null;

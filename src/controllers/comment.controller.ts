@@ -24,15 +24,8 @@ export const getPostComments = async (
     res: Response
 ) => {
     try {
-        const userId = req.userId;
+        const userId = req.userId ?? null;
         const { id } = req.params;
-
-        if (!userId) {
-            return res.status(401).json({
-                success: false,
-                message: "Unauthorized",
-            });
-        }
 
         if (!isValidId(id)) {
             return res.status(400).json({

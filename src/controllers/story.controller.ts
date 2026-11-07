@@ -46,7 +46,10 @@ export const getFeedStories = async (req: AuthRequest, res: Response) => {
     try {
         const viewerId = req.userId;
         if (!viewerId) {
-            return res.status(401).json({ success: false, message: "Unauthorized" });
+            return res.status(200).json({
+                success: true,
+                data: [],
+            });
         }
 
         const stories = await storyService.getFeedStories(viewerId); /* lấy toàn bộ danh sách Story dành riêng cho người dùng đang đăng nhập */

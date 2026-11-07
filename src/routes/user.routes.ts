@@ -1,6 +1,6 @@
 import { Router } from "express";
 import * as userController from "../controllers/user.controller";
-import { auth } from "../middlewares/auth.middleware";
+import { auth, optionalAuth } from "../middlewares/auth.middleware";
 import {
     uploadProfileAvatar,
     uploadProfileCover,
@@ -23,8 +23,8 @@ router.patch(
     uploadProfileCover,
     userController.updateMyCoverImage
 );
-router.get("/:userId/profile", auth, userController.getUserProfile);
-router.get("/:userId/media", auth, userController.getUserMedia);
+router.get("/:userId/profile", optionalAuth, userController.getUserProfile);
+router.get("/:userId/media", optionalAuth, userController.getUserMedia);
 router.get("/:id", userController.getUser);
 router.post("/", userController.createUser);
 router.patch("/:id", userController.updateUser);

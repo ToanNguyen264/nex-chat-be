@@ -429,29 +429,31 @@ export const getUserMedia = async ({
     limit = 20,
 }: {
     userId: bigint;
-    viewerId: bigint;
+    viewerId?: bigint | undefined;
     type?: 'image' | 'video' | undefined;
     limit?: number | undefined;
 }) => {
     let allowedPrivacy: Array<'public' | 'friends' | 'private'> = ['public'];
 
-    if (viewerId === userId) {
-        allowedPrivacy = ['public', 'friends', 'private'];
-    } else {
-        const friendship = await prisma.friendships.findFirst({
-            where: {
-                status: 'accepted',
-                deleted_at: null,
-                OR: [
-                    { requester_id: viewerId, addressee_id: userId },
-                    { requester_id: userId, addressee_id: viewerId },
-                ],
-            },
-            select: { id: true },
-        });
+    if (viewerId !== undefined) {
+        if (viewerId === userId) {
+            allowedPrivacy = ['public', 'friends', 'private'];
+        } else {
+            const friendship = await prisma.friendships.findFirst({
+                where: {
+                    status: 'accepted',
+                    deleted_at: null,
+                    OR: [
+                        { requester_id: viewerId, addressee_id: userId },
+                        { requester_id: userId, addressee_id: viewerId },
+                    ],
+                },
+                select: { id: true },
+            });
 
-        if (friendship) {
-            allowedPrivacy = ['public', 'friends'];
+            if (friendship) {
+                allowedPrivacy = ['public', 'friends'];
+            }
         }
     }
 

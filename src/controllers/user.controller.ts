@@ -1,4 +1,4 @@
-﻿import type { Request, Response } from "express";
+import type { Request, Response } from "express";
 import * as userService from "../services/user.service";
 import bcrypt from "bcrypt";
 import type { AuthRequest } from "../middlewares/auth.middleware";
@@ -559,10 +559,6 @@ export const getUserMedia = async (req: AuthRequest, res: Response) => {
         const viewerId = req.userId;
         const userIdParam = req.params.userId;
         const userId = typeof userIdParam === 'string' ? userIdParam : Array.isArray(userIdParam) ? userIdParam[0] : '';
-
-        if (!viewerId) {
-            return res.status(401).json({ success: false, message: 'Unauthorized' });
-        }
 
         if (!userId || !/^\d+$/.test(userId)) {
             return res.status(400).json({ success: false, message: 'Invalid user ID' });
