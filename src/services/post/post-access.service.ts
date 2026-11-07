@@ -2,7 +2,7 @@ import prisma from "../../configs/prisma";
 import { getProfileVisibility } from "./post-visibility";
 
 export const canViewPost = async (
-    viewerId: bigint,
+    viewerId: bigint | null,
     postId: bigint
 ) => {
     const post = await prisma.posts.findFirst({
@@ -23,6 +23,10 @@ export const canViewPost = async (
 
     if (!post) {
         return false;
+    }
+
+    if (!viewerId) {
+        return post.privacy === "public";
     }
 
     const relationship =

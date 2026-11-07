@@ -60,7 +60,7 @@ export const createPost = async (
 };
 
 type GetPostsInput = {
-    viewerId: bigint;
+    viewerId: bigint | null;
     cursor: bigint | null;
     limit: number;
 };
@@ -71,7 +71,7 @@ type GetUserPostsInput = GetPostsInput & {
 
 const getPaginatedPosts = async (
     where: Prisma.postsWhereInput,
-    viewerId: bigint,
+    viewerId: bigint | null,
     cursor: bigint | null,
     limit: number
 ) => {
@@ -175,19 +175,21 @@ const getPaginatedPosts = async (
                     _all: true,
                 },
             }),
-            prisma.reactions.findMany({
-                where: {
-                    user_id: viewerId,
-                    target_type: "post",
-                    target_id: {
-                        in: postIds,
+            viewerId
+                ? prisma.reactions.findMany({
+                    where: {
+                        user_id: viewerId,
+                        target_type: "post",
+                        target_id: {
+                            in: postIds,
+                        },
                     },
-                },
-                select: {
-                    target_id: true,
-                    reaction_type: true,
-                },
-            }),
+                    select: {
+                        target_id: true,
+                        reaction_type: true,
+                    },
+                })
+                : Promise.resolve([]),
         ]);
 
     // 3. Lọc bài viết bằng vòng lặp thông thường (loại bỏ tài khoản bị khóa / đã xóa)
@@ -208,22 +210,25 @@ const getPaginatedPosts = async (
     );
 
     // 4. Lấy danh sách tác giả và kiểm tra trạng thái theo dõi + bạn bè của người xem
-    const authorIds = Array.from(
-        new Set(
-            pagePosts
-                .map((post) => post.user_id)
-                .filter((userId) => userId !== viewerId)
+    const authorIds = viewerId
+        ? Array.from(
+            new Set(
+                pagePosts
+                    .map((post) => post.user_id)
+                    .filter((userId) => userId !== viewerId)
+            )
         )
-    );
+        : [];
 
     let followingIds: bigint[] = [];
     let friendUserIds: bigint[] = [];
 
-    if (authorIds.length > 0) {
+    if (viewerId && authorIds.length > 0) {
+        const currentViewerId = viewerId;
         const [followRows, friendshipRows] = await Promise.all([
             prisma.follows.findMany({
                 where: {
-                    follower_id: viewerId,
+                    follower_id: currentViewerId,
                     following_id: { in: authorIds },
                     is_deleted: "No",
                 },
@@ -236,8 +241,8 @@ const getPaginatedPosts = async (
                     status: "accepted",
                     deleted_at: null,
                     OR: [
-                        { requester_id: viewerId, addressee_id: { in: authorIds } },
-                        { addressee_id: viewerId, requester_id: { in: authorIds } },
+                        { requester_id: currentViewerId, addressee_id: { in: authorIds } },
+                        { addressee_id: currentViewerId, requester_id: { in: authorIds } },
                     ],
                 },
                 select: {
@@ -249,7 +254,7 @@ const getPaginatedPosts = async (
 
         followingIds = followRows.map((item) => item.following_id);
         friendUserIds = friendshipRows.map((item) =>
-            item.requester_id === viewerId ? item.addressee_id : item.requester_id
+            item.requester_id === currentViewerId ? item.addressee_id : item.requester_id
         );
     }
 
@@ -314,6 +319,18 @@ export const getHomePosts = async ({
     cursor,
     limit,
 }: GetPostsInput) => {
+    if (!viewerId) {
+        return getPaginatedPosts(
+            {
+                deleted_at: null,
+                privacy: "public",
+            },
+            null,
+            cursor,
+            limit
+        );
+    }
+
     // 1. Chạy lấy quan hệ bạn bè và sở thích hashtag SONG SONG (Promise.all)
     const [relationships, userInterests, followings] = await Promise.all([
         prisma.friendships.findMany({
@@ -459,6 +476,19 @@ export const getUserPosts = async ({
 
     if (!owner) {
         return null;
+    }
+
+    if (!viewerId) {
+        return getPaginatedPosts(
+            {
+                user_id: ownerId,
+                deleted_at: null,
+                privacy: "public",
+            },
+            null,
+            cursor,
+            limit
+        );
     }
 
     const relationship =

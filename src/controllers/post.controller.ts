@@ -180,14 +180,7 @@ export const getPosts = async (
     res: Response
 ) => {
     try {
-        const userId = req.userId;
-
-        if (!userId) {
-            return res.status(401).json({
-                success: false,
-                message: "Unauthorized",
-            });
-        }
+        const userId = req.userId ?? null;
 
         const query = parsePostListQuery(
             req.query.cursor,
@@ -231,15 +224,8 @@ export const getUserPosts = async (
     res: Response
 ) => {
     try {
-        const viewerId = req.userId;
+        const viewerId = req.userId ?? null;
         const { userId } = req.params;
-
-        if (!viewerId) {
-            return res.status(401).json({
-                success: false,
-                message: "Unauthorized",
-            });
-        }
 
         if (
             !userId ||

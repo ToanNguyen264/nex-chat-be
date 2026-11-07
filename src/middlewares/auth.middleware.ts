@@ -51,3 +51,32 @@ export const auth = (req: AuthRequest, res: Response, next: NextFunction) => {
         });
     }
 };
+
+export const optionalAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const header = req.headers.authorization;
+
+        if (!header) {
+            return next();
+        }
+
+        const token = header.split(" ")[1];
+
+        if (!token) {
+            return next();
+        }
+
+        const payload = verifyAccessToken(token) as {
+            userId: string;
+            type: string;
+        };
+
+        if (payload && payload.type === "access" && payload.userId) {
+            req.userId = BigInt(payload.userId);
+        }
+
+        return next();
+    } catch {
+        return next();
+    }
+};
